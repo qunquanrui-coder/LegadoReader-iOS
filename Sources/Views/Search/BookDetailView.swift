@@ -12,6 +12,7 @@ public struct BookDetailView: View {
     @State private var isCachingFullBook = false
     @State private var fullCacheStatusText: String? = nil
     @State private var cacheTask: Task<Void, Never>? = nil
+    @State private var tocTask: Task<Void, Never>? = nil
     
     public init(book: Book) {
         _book = State(initialValue: book)
@@ -313,6 +314,9 @@ public struct BookDetailView: View {
         .onAppear {
             loadChapters()
         }
+        .onDisappear {
+            tocTask?.cancel()
+        }
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
                 self.book = newBook
@@ -407,23 +411,35 @@ public struct BookDetailView: View {
     }
     
     private func loadChapters() {
+        tocTask?.cancel()
         isLoadingChapters = true
         errorMessage = nil
         
-        let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
-            ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
+        let requestedBook = book
+        let source = storage.bookSources.first(where: { $0.bookSourceUrl == requestedBook.sourceUrl })
+            ?? BookSource(bookSourceName: requestedBook.sourceName, bookSourceUrl: requestedBook.sourceUrl)
         
         // Offline-first: the persisted TOC also powers 目录预览 and 全本缓存 without network.
-        if let cachedToc = storage.loadCachedToc(for: book) {
+        if let cachedToc = storage.loadCachedToc(for: requestedBook) {
             chapters = cachedToc.chapters
             book.totalChapters = cachedToc.chapters.count
             isLoadingChapters = false
         }
         
-        Task {
+        tocTask = Task {
             do {
-                let result = try await LegadoParser.shared.fetchToc(bookUrl: book.bookUrl, source: source)
+                let result = try await LegadoParser.shared.fetchToc(bookUrl: requestedBook.bookUrl, source: source)
+                try Task.checkCancellation()
                 await MainActor.run {
+                    // A slow request from the previous source must never touch the new one.
+                    guard self.book.sourceUrl == requestedBook.sourceUrl,
+                          self.book.bookUrl == requestedBook.bookUrl else { return }
+                    // An incomplete refresh must never replace a usable catalogue.
+                    guard TocUpdatePolicy.shouldAcceptRefresh(resultComplete: result.complete,
+                                                              localChapterCount: self.chapters.count) else {
+                        self.isLoadingChapters = false
+                        return
+                    }
                     if result.chapters.isEmpty {
                         if self.chapters.isEmpty {
                             self.errorMessage = "当前站点未返回有效目录，建议点击「一键换源」切换其他书源"
@@ -431,12 +447,16 @@ public struct BookDetailView: View {
                     } else {
                         self.chapters = result.chapters
                         self.book.totalChapters = result.chapters.count
-                        self.storage.saveCachedToc(for: self.book, chapters: result.chapters, complete: result.complete)
+                        self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
                     }
                     self.isLoadingChapters = false
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run {
+                    guard self.book.sourceUrl == requestedBook.sourceUrl,
+                          self.book.bookUrl == requestedBook.bookUrl else { return }
                     if self.chapters.isEmpty {
                         self.errorMessage = "目录拉取超时或站点受限，请点击「一键换源」切换书源"
                     }

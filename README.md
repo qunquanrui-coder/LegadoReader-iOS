@@ -4,20 +4,20 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
-![Release](https://img.shields.io/badge/Release-v3.4.0-brightgreen)
+![Release](https://img.shields.io/badge/Release-v3.4.1-brightgreen)
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 纯净小说阅读器，深度兼容 **开源阅读（Legado 3.0）** 书源规则体系（内置 20 个实测高速纯净书源 + 原生 `JavaScriptCore` 脚本引擎支持 `@js:` / `<js>` 规则），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
 
 ---
 
-## 📦 最新版本下载 (`v3.4.0` 听书与离线目录修复版)
+## 📦 最新版本下载 (`v3.4.1` 目录与听书状态修复版)
 
-直接前往 [**GitHub Releases (v3.4.0)**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.4.0) 或点击下方直链下载：
+直接前往 [**GitHub Releases (v3.4.1)**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.4.1) 或点击下方直链下载：
 
 | 版本类型 | 适用设备 | 安装包直链 | 核心特性差异 |
 | :--- | :--- | :--- | :--- |
-| 📱 **iPhone 标准通用版** | 所有常规单屏 iPhone (`iOS 16.0+`) | [**`LegadoReader-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.4.0/LegadoReader-unsigned.ipa) | 桌面名称 **`风读小说`**，针对单手竖屏握持优化，默认全屏沉浸模式 |
-| 📖 **iPhone Duo 折叠双屏专享版** | **iPhone Duo**（5.4" 外屏 + 7.6" 书本式折叠内屏）及宽屏设备 | [**`LegadoReader-iPhoneDuo-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.4.0/LegadoReader-iPhoneDuo-unsigned.ipa) | 桌面名称 **`风读小说 Duo`**，支持内外屏 0 黑边动态窗口切换、**展开 7.6" 内屏自动双页书本对开（带中轴 3D 书脊折痕光影）**、**左屏常驻目录+右屏阅读分屏模式**、内外屏自适应 3 列/5 列书架 |
+| 📱 **iPhone 标准通用版** | 所有常规单屏 iPhone (`iOS 16.0+`) | [**`LegadoReader-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.4.1/LegadoReader-unsigned.ipa) | 桌面名称 **`风读小说`**，针对单手竖屏握持优化，默认全屏沉浸模式 |
+| 📖 **iPhone Duo 折叠双屏专享版** | **iPhone Duo**（5.4" 外屏 + 7.6" 书本式折叠内屏）及宽屏设备 | [**`LegadoReader-iPhoneDuo-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.4.1/LegadoReader-iPhoneDuo-unsigned.ipa) | 桌面名称 **`风读小说 Duo`**，支持内外屏 0 黑边动态窗口切换、**展开 7.6" 内屏自动双页书本对开（带中轴 3D 书脊折痕光影）**、**左屏常驻目录+右屏阅读分屏模式**、内外屏自适应 3 列/5 列书架 |
 
 ---
 
@@ -64,7 +64,8 @@
 - **四档 6 路并发离线缓存**：阅读器顶部与书籍详情页支持 **「缓存后 30 章」**、**「缓存后 100 章」**、**「缓存后续全部章节」** 与 **「全本完整缓存」**，缓存存储在 `Library/Application Support/NovelCache_v4_complete` 并自动标记 `isExcludedFromBackup = true`，不占 iCloud 空间。
 - **分页目录完整抓取**：兼容 Legado `ruleToc.nextTocUrl`（选择器 / `@js:` / `text.下一页` 等）及 `rel=next` / 分页容器「下一页」启发式，跨页按规范化 URL 去重、防 URL 环、限制最大页数并统一重建章节序号；只有跟完全部可发现的下一页才标记为完整目录，否则保存可用部分并提示「目录可能不完整」。
 - **目录持久化 + 断网打开**：章节目录（标题 / 正文 URL / 完整性标记）与正文缓存一并保存，断网重开已缓存书籍无需再联网拉目录；目录记录绑定 `bookId + 书源 URL + 书籍 URL`，换源或换书自动失效，旧站点的章节不会串进来。
-- **恢复备份不回退进度**：书架、位置表与章节标题采用统一的「较新者胜」恢复规则（时间优先，同时间比章节号），旧备份不会把已读到的新章节覆盖回旧位置。
+- **目录刷新保护**：后台刷新若未完整抓取，保留原完整目录，绝不用残缺结果覆盖（避免 1000 章被 100 章替换、进度被回退）；详情页换源会取消旧请求并按书源身份丢弃过期结果，旧书源目录不会污染新书源缓存。
+- **备份恢复不回退进度**：书架、位置表与章节标题采用统一的「较新者胜」恢复规则（时间优先，同时间比章节号），旧备份不会把已读到的新章节覆盖回旧位置。
 - **内置原生 `JavaScriptCore` (`LegadoJSEngine`)**：支持解析含 `@js:`、` <js>...</js> ` 及 `{{...}}` 动态脚本的 Legado 书源（内置 `java.encodeURI`、`java.base64Encode/Decode`、`java.md5Encode`、`java.put/get` 等桥接函数）。
 - **全量数据备份与恢复（防丢失）**：在「我的 -> 数据备份与恢复」中支持 **导出完整备份 `.json` 文件**、**复制备份到剪贴板**、**从剪贴板恢复**、**从文件导入恢复**，一次性备份全部书架藏书、章节+段落阅读进度、书源与阅读设置。
 
@@ -75,7 +76,7 @@
 ```text
 LegadoReader-iOS/
 ├── .github/workflows/build.yml          # GitHub Actions 云端自动构建双版本 IPA 工作流
-├── project.yml                          # XcodeGen 工程配置文件 (v3.4.0)
+├── project.yml                          # XcodeGen 工程配置文件 (v3.4.1)
 ├── Resources/
 │   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
 │   ├── default_sources.json             # 内置 20 个实测高速纯净 Legado 书源
@@ -130,6 +131,7 @@ LegadoReader-iOS/
 
 ## 🗓️ 版本演进记录
 
+- **`v3.4.1`**：修复 4 个审查遗漏——后台目录刷新不完整时不再覆盖原完整目录（避免 1000 章被 100 章的残缺结果替换并回退进度）；详情页换源时取消旧目录请求并校验请求身份，旧书源结果不再污染新书源缓存；听书切章加载期间点停止后不再自动复播；自动进入下一章时不再取消睡眠定时（区分「停止当前音频」与「结束听书会话」）。
 - **`v3.4.0`**：修复听书切书/切章时旧音频继续播放并把段落进度写到新章节的问题（统一先停旧播放、回调增加上下文校验）；章节目录持久化，已缓存书籍断网可打开并静默刷新；支持 Legado 分页目录 `nextTocUrl` 与跨页去重、完整性标记；备份恢复统一「较新者胜」规则，旧备份不再回退阅读位置。
 - **`v3.3.0`**：新增真实屏幕尺寸 CoreText (`NSString.boundingRect`) 像素级测量分页、全量数据备份与恢复系统（导出/导入 `.json` 及剪贴板恢复）、原生 `JavaScriptCore` (`LegadoJSEngine`) 支持 `@js:` / `<js>` 书源规则、统一工程版本号管理。
 - **`v3.2.1`**：修复换源后沿用旧缓存导致章节错位问题（换源自动清缓存并按章节标题智能对齐新目录）、分段结果缓存与 1.2 秒节流保存进度、支持退出阅读器后后台自动续章听书 + 书架底部迷你播放条、离线缓存迁移至 `Application Support` 并排除 iCloud 备份。

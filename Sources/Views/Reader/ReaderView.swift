@@ -56,6 +56,7 @@ public struct ReaderView: View {
     // becomes current, then resume on the new text (keeping the previous pause state).
     @State private var pendingTTSCarryOver = false
     @State private var pendingTTSPaused = false
+    @State private var pendingTTSSession: Int = 0
     @State private var pendingListenStart = false
     
     // Intra-Chapter Paragraph Restoration State
@@ -962,6 +963,10 @@ public struct ReaderView: View {
                 Button {
                     speech.stop()
                     showTTSBar = false
+                    // Explicitly ending the session must also cancel any pending chapter-switch resume.
+                    pendingListenStart = false
+                    pendingTTSCarryOver = false
+                    pendingTTSPaused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
@@ -1523,7 +1528,14 @@ public struct ReaderView: View {
                 try Task.checkCancellation()
                 guard !result.chapters.isEmpty else { return }
                 await MainActor.run {
-                    guard self.tocLoadID == loadID, self.book.bookUrl == requestedBook.bookUrl else { return }
+                    guard self.tocLoadID == loadID,
+                          TocUpdatePolicy.matchesRequest(currentSourceUrl: self.book.sourceUrl,
+                                                         currentBookUrl: self.book.bookUrl,
+                                                         requestedSourceUrl: requestedBook.sourceUrl,
+                                                         requestedBookUrl: requestedBook.bookUrl),
+                          TocUpdatePolicy.shouldAcceptRefresh(resultComplete: result.complete,
+                                                              localChapterCount: self.chapters.count)
+                    else { return }
                     let chapterChanged = self.applyToc(result.chapters)
                     self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
                     if chapterChanged {
@@ -1548,8 +1560,9 @@ public struct ReaderView: View {
         if speech.isSpeaking && ownsSpeech {
             pendingTTSCarryOver = true
             pendingTTSPaused = speech.isPaused
+            pendingTTSSession = speech.sessionStopCount
             resumeTTS = true
-            speech.stop()
+            speech.suspendForChapterTransition()
             showTTSBar = true
         }
         currentChapterIndex = newIndex
@@ -1615,9 +1628,16 @@ public struct ReaderView: View {
             } catch {
                 await MainActor.run {
                     guard self.chapterLoadID == loadID else { return }
+                    let wasCarryOver = self.pendingTTSCarryOver
                     self.pendingTTSCarryOver = false
                     self.pendingTTSPaused = false
                     self.pendingListenStart = false
+                    if wasCarryOver {
+                        // The switch belonged to an active listening session but the text failed
+                        // to load: end that session instead of leaving a half-paused player.
+                        self.speech.stop()
+                        self.showTTSBar = false
+                    }
                     self.errorMessage = "正文抓取失败: \(error.localizedDescription)"
                     self.isLoading = false
                 }
@@ -1638,7 +1658,13 @@ public struct ReaderView: View {
                                 bookTitle: book.title, chapterTitle: chapter.title)
             return
         }
-        guard autoContinueTTS, !formattedParagraphs.isEmpty else {
+        // Resume only if this load was a chapter-switch carry-over AND the user did not stop
+        // listening while the chapter was loading (which clears pendingTTSCarryOver).
+        guard PlaybackTransitionPolicy.shouldResume(carryOverRequested: autoContinueTTS,
+                                                    carryOverPending: pendingTTSCarryOver,
+                                                    hasParagraphs: !formattedParagraphs.isEmpty,
+                                                    sessionUnchanged: speech.sessionStopCount == pendingTTSSession)
+        else {
             pendingTTSCarryOver = false
             pendingTTSPaused = false
             return

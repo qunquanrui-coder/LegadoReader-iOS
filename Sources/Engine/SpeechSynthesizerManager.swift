@@ -16,6 +16,10 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     @Published public var speechRateMultiplier: Float = 1.0
     @Published public var selectedVoice: NeuralVoiceActor = .yunxi
     @Published public var sleepTimerMinutes: Int? = nil
+    /// Incremented by every full `stop()`. Async chapter-load completions compare this value
+    /// against the one captured when the switch started, so a stop during loading (including
+    /// lock-screen / remote-control stop) suppresses the automatic resume.
+    @Published public private(set) var sessionStopCount: Int = 0
     
     public var onParagraphChanged: ((Int) -> Void)?
     public var onChapterFinished: (() -> Void)?
@@ -414,6 +418,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     public func stop() {
+        sessionStopCount += 1
         detachedAdvanceTask?.cancel()
         detachedAdvanceTask = nil
         stopCurrentPlaybackOnly()
@@ -426,6 +431,24 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         cancelSleepTimer()
         #if os(iOS)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        #endif
+    }
+    
+    /// Stops the current chapter's audio for a chapter switch while keeping the listening
+    /// session alive: the sleep timer, reading context and play/pause intent survive so the
+    /// next chapter can resume. Unlike `stop()` this must never cancel the sleep timer.
+    public func suspendForChapterTransition() {
+        detachedAdvanceTask?.cancel()
+        detachedAdvanceTask = nil
+        stopCurrentPlaybackOnly()
+        stopKeepAliveAudio()
+        endBackgroundTaskAssertion()
+        isSpeaking = false
+        isPaused = false
+        isLoadingAudio = false
+        prefetchedAudio.removeAll()
+        #if os(iOS)
+        updateNowPlayingInfo()
         #endif
     }
     
