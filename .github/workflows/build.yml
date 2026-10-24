@@ -10,17 +10,17 @@ on:
 jobs:
   build:
     name: Build Unsigned IPA
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Xcode
-        run: sudo xcode-select -switch /Applications/Xcode_15.4.app/Contents/Developer || sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+      - name: Check Xcode Version
+        run: xcodebuild -version
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install xcodegen if needed
+        run: which xcodegen || brew install xcodegen
 
       - name: Generate Xcode Project
         run: xcodegen generate
@@ -48,6 +48,7 @@ jobs:
           echo "Found app at: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r -q LegadoReader-unsigned.ipa Payload/
+          ls -lh LegadoReader-unsigned.ipa
           echo "Successfully packaged LegadoReader-unsigned.ipa"
 
       - name: Upload IPA Artifact
@@ -55,4 +56,4 @@ jobs:
         with:
           name: LegadoReader-unsigned-ipa
           path: LegadoReader-unsigned.ipa
-          retention-days: 7
+          retention-days: 30
