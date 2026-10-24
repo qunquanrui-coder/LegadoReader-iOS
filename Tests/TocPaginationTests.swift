@@ -182,7 +182,9 @@ final class TocPaginationTests: XCTestCase {
         // book-info preview (latest 5 chapters) is available.
         let fixture = TocFixturePages([bookPage: bookHtml])
         let source = BookSource(bookSourceName: "Fixture", bookSourceUrl: "https://fixture.invalid",
-                                ruleBookInfo: RuleBookInfo(tocUrl: "a.toc@href"),
+                                ruleBookInfo: RuleBookInfo(name: nil, author: nil, intro: nil,
+                                                           coverUrl: nil, latestChapter: nil,
+                                                           tocUrl: "a.toc@href"),
                                 ruleToc: RuleToc(chapterList: "#latest a", chapterName: "text", chapterUrl: "href"))
         let result = try await LegadoParser.shared.fetchToc(
             bookUrl: bookPage, source: source, maxPages: 10,
