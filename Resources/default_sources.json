@@ -1,0 +1,65 @@
+[
+  {
+    "bookSourceComment": "默认精选笔趣阁源",
+    "bookSourceName": "笔趣阁小说",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.biquge.co",
+    "enabled": true,
+    "enabledExplore": true,
+    "ruleBookInfo": {
+      "author": "meta[property=og:novel:author]@content",
+      "coverUrl": "meta[property=og:image]@content",
+      "intro": "meta[property=og:description]@content",
+      "name": "meta[property=og:novel:book_name]@content",
+      "lastChapter": "meta[property=og:novel:latest_chapter_name]@content"
+    },
+    "ruleContent": {
+      "content": "#content@html"
+    },
+    "ruleSearch": {
+      "author": ".author@text",
+      "bookList": ".bookbox",
+      "bookUrl": "h4 a@href",
+      "coverUrl": ".bookimg img@src",
+      "intro": ".update_intro@text",
+      "name": "h4 a@text",
+      "lastChapter": ".cat a@text"
+    },
+    "ruleToc": {
+      "chapterList": "#list dl dd a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "searchUrl": "https://www.biquge.co/search.html?keyword={{key}}"
+  },
+  {
+    "bookSourceComment": "优质备用文学书源",
+    "bookSourceName": "书趣阁",
+    "bookSourceType": 0,
+    "bookSourceUrl": "http://www.shuquge.com",
+    "enabled": true,
+    "enabledExplore": true,
+    "ruleBookInfo": {
+      "author": ".small span:nth-of-type(1)@text",
+      "coverUrl": ".cover img@src",
+      "intro": ".intro@text",
+      "name": "h2@text"
+    },
+    "ruleContent": {
+      "content": "#content@html"
+    },
+    "ruleSearch": {
+      "author": ".author@text",
+      "bookList": ".txt-list li",
+      "bookUrl": ".s2 a@href",
+      "name": ".s2 a@text",
+      "lastChapter": ".s3 a@text"
+    },
+    "ruleToc": {
+      "chapterList": ".listmain dd a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "searchUrl": "http://www.shuquge.com/search.php?keyword={{key}}"
+  }
+]

@@ -1,0 +1,10 @@
+.DS_Store
+*.xcworkspace
+*.xcuserdata
+*.xcuserdatad
+xcuserdata/
+DerivedData/
+build/
+*.ipa
+.build/
+*.xcodeproj
