@@ -58,6 +58,11 @@ public struct ReaderView: View {
     @State private var pendingTTSPaused = false
     @State private var pendingTTSSession: Int = 0
     @State private var pendingListenStart = false
+    /// Content URL of the chapter currently held in `formattedParagraphs`. While a new chapter
+    /// is still loading this stays on the previous chapter, so 听书 must not start on it.
+    @State private var loadedContentChapterURL: String?
+    /// Whether the current chapter list was fetched completely (drives "全本缓存完成" wording).
+    @State private var isTocComplete: Bool = true
     
     // Intra-Chapter Paragraph Restoration State
     @State private var targetRestoreParagraph: Int? = nil
@@ -1350,7 +1355,12 @@ public struct ReaderView: View {
                 return
             }
         }
-        guard !formattedParagraphs.isEmpty else {
+        // While the next chapter is still fetching, `formattedParagraphs` may still contain the
+        // previous chapter — starting TTS now would read it under the new chapter's title/progress.
+        guard PlaybackTransitionPolicy.canStartListening(loadedChapterURL: loadedContentChapterURL,
+                                                         currentChapterURL: currentChapter?.url,
+                                                         hasParagraphs: !formattedParagraphs.isEmpty)
+        else {
             pendingListenStart = true
             return
         }
@@ -1430,6 +1440,7 @@ public struct ReaderView: View {
         // 1) Offline-first: a persisted TOC is enough to open every already-cached chapter.
         if let cachedToc = storage.loadCachedToc(for: requestedBook) {
             applyToc(cachedToc.chapters, consumeRelocation: true)
+            isTocComplete = cachedToc.complete
             isLoading = false
             loadCurrentChapterContent()
             refreshTocInBackground(book: requestedBook, source: source, loadID: loadID)
@@ -1449,6 +1460,7 @@ public struct ReaderView: View {
                         return
                     }
                     self.applyToc(result.chapters, consumeRelocation: true)
+                    self.isTocComplete = result.complete
                     self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
                     self.loadCurrentChapterContent()
                     if !result.complete {
@@ -1536,6 +1548,7 @@ public struct ReaderView: View {
                           TocUpdatePolicy.shouldAcceptRefresh(resultComplete: result.complete,
                                                               localChapterCount: self.chapters.count)
                     else { return }
+                    self.isTocComplete = result.complete
                     let chapterChanged = self.applyToc(result.chapters)
                     self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
                     if chapterChanged {
@@ -1588,6 +1601,7 @@ public struct ReaderView: View {
         if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index,
                                                                chapterURL: chapter.url, sourceURL: book.sourceUrl) {
             self.applyChapterContent(cached)
+            self.loadedContentChapterURL = chapter.url
             self.isLoading = false
             self.errorMessage = nil
             self.restorePageFromParagraphIfNeeded()
@@ -1615,6 +1629,7 @@ public struct ReaderView: View {
                     guard self.chapterLoadID == loadID, self.currentChapter?.url == chapter.url,
                           self.book.bookUrl == requestedBook.bookUrl else { return }
                     self.applyChapterContent(content.text)
+                    self.loadedContentChapterURL = chapter.url
                     self.isLoading = false
                     self.storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: chapter.index, content: content)
                     self.restorePageFromParagraphIfNeeded()
@@ -1780,7 +1795,14 @@ public struct ReaderView: View {
             let savedTotal = completed
             await MainActor.run {
                 self.isCachingChapters = false
-                self.cacheProgressText = savedTotal == total ? "缓存完成（\(total) 章完整就绪）" : "缓存未完成：成功 \(savedTotal)/\(total) 章，请重试失败章节"
+                if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
+                                                       tocComplete: self.isTocComplete) {
+                    self.cacheProgressText = "缓存完成（\(total) 章完整就绪）"
+                } else if savedTotal == total {
+                    self.cacheProgressText = "已缓存当前获取的 \(total) 章，但目录尚不完整，无法确认全本"
+                } else {
+                    self.cacheProgressText = "缓存未完成：成功 \(savedTotal)/\(total) 章，请重试失败章节"
+                }
             }
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             await MainActor.run {

@@ -13,6 +13,8 @@ public struct BookDetailView: View {
     @State private var fullCacheStatusText: String? = nil
     @State private var cacheTask: Task<Void, Never>? = nil
     @State private var tocTask: Task<Void, Never>? = nil
+    /// False when the catalogue was only partially fetched — "全本缓存完成" must not be claimed.
+    @State private var isTocComplete: Bool = true
     
     public init(book: Book) {
         _book = State(initialValue: book)
@@ -405,7 +407,14 @@ public struct BookDetailView: View {
             let savedTotal = completed
             await MainActor.run {
                 self.isCachingFullBook = false
-                self.fullCacheStatusText = savedTotal == total ? "全本 \(total) 章完整缓存完成" : "缓存未完成：成功 \(savedTotal)/\(total) 章，请重试失败章节"
+                if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
+                                                       tocComplete: self.isTocComplete) {
+                    self.fullCacheStatusText = "全本 \(total) 章完整缓存完成"
+                } else if savedTotal == total {
+                    self.fullCacheStatusText = "已缓存当前获取的 \(total) 章，但目录尚不完整，无法确认全本"
+                } else {
+                    self.fullCacheStatusText = "缓存未完成：成功 \(savedTotal)/\(total) 章，请重试失败章节"
+                }
             }
         }
     }
@@ -423,6 +432,7 @@ public struct BookDetailView: View {
         if let cachedToc = storage.loadCachedToc(for: requestedBook) {
             chapters = cachedToc.chapters
             book.totalChapters = cachedToc.chapters.count
+            isTocComplete = cachedToc.complete
             isLoadingChapters = false
         }
         
@@ -440,6 +450,7 @@ public struct BookDetailView: View {
                         self.isLoadingChapters = false
                         return
                     }
+                    self.isTocComplete = result.complete
                     if result.chapters.isEmpty {
                         if self.chapters.isEmpty {
                             self.errorMessage = "当前站点未返回有效目录，建议点击「一键换源」切换其他书源"

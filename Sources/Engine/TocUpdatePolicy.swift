@@ -21,6 +21,12 @@ public enum TocUpdatePolicy {
                                       requestedBookUrl: String) -> Bool {
         currentSourceUrl == requestedSourceUrl && currentBookUrl == requestedBookUrl
     }
+
+    /// "全本缓存完成" is only true when both the catalogue itself is complete and every
+    /// chapter in that catalogue was cached.
+    public static func isFullCacheComplete(savedCount: Int, totalCount: Int, tocComplete: Bool) -> Bool {
+        tocComplete && totalCount > 0 && savedCount == totalCount
+    }
 }
 
 /// Rules for restarting TTS after an asynchronous chapter load.
@@ -33,5 +39,14 @@ public enum PlaybackTransitionPolicy {
                                     hasParagraphs: Bool,
                                     sessionUnchanged: Bool) -> Bool {
         carryOverRequested && carryOverPending && hasParagraphs && sessionUnchanged
+    }
+
+    /// The 听书 button must not read the previous chapter's paragraph buffer while the new
+    /// chapter is still fetching: the loaded content URL has to match the current chapter.
+    public static func canStartListening(loadedChapterURL: String?,
+                                         currentChapterURL: String?,
+                                         hasParagraphs: Bool) -> Bool {
+        guard hasParagraphs, let current = currentChapterURL, !current.isEmpty else { return false }
+        return loadedChapterURL == current
     }
 }

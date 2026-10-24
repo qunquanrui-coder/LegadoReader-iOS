@@ -31,9 +31,32 @@ final class TocUpdatePolicyTests: XCTestCase {
                                                      requestedSourceUrl: "https://a.invalid",
                                                      requestedBookUrl: "https://a.invalid/book/1"))
     }
+
+    func testFullCacheCompletionAlsoRequiresCompleteCatalogue() {
+        XCTAssertTrue(TocUpdatePolicy.isFullCacheComplete(savedCount: 100, totalCount: 100, tocComplete: true))
+        XCTAssertFalse(TocUpdatePolicy.isFullCacheComplete(savedCount: 100, totalCount: 100, tocComplete: false))
+        XCTAssertFalse(TocUpdatePolicy.isFullCacheComplete(savedCount: 99, totalCount: 100, tocComplete: true))
+        XCTAssertFalse(TocUpdatePolicy.isFullCacheComplete(savedCount: 0, totalCount: 0, tocComplete: true))
+    }
 }
 
 final class PlaybackTransitionPolicyTests: XCTestCase {
+    func testListeningRequiresLoadedContentForCurrentChapter() {
+        XCTAssertTrue(PlaybackTransitionPolicy.canStartListening(loadedChapterURL: "https://x.invalid/2.html",
+                                                                 currentChapterURL: "https://x.invalid/2.html",
+                                                                 hasParagraphs: true))
+        // New chapter is still loading: formattedParagraphs still belongs to the previous chapter.
+        XCTAssertFalse(PlaybackTransitionPolicy.canStartListening(loadedChapterURL: "https://x.invalid/1.html",
+                                                                  currentChapterURL: "https://x.invalid/2.html",
+                                                                  hasParagraphs: true))
+        XCTAssertFalse(PlaybackTransitionPolicy.canStartListening(loadedChapterURL: nil,
+                                                                  currentChapterURL: "https://x.invalid/2.html",
+                                                                  hasParagraphs: true))
+        XCTAssertFalse(PlaybackTransitionPolicy.canStartListening(loadedChapterURL: "https://x.invalid/2.html",
+                                                                  currentChapterURL: "https://x.invalid/2.html",
+                                                                  hasParagraphs: false))
+    }
+
     func testResumeRequiresBothCarryOverAndStillPending() {
         XCTAssertTrue(PlaybackTransitionPolicy.shouldResume(carryOverRequested: true,
                                                             carryOverPending: true,

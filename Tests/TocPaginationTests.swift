@@ -170,4 +170,25 @@ final class TocPaginationTests: XCTestCase {
         XCTAssertEqual(result.chapters.map(\.index), Array(0..<4))
         XCTAssertEqual(result.chapters.filter { $0.url.hasSuffix("/3.html") }.count, 1)
     }
+
+    func testDeclaredSeparateTocFailureKeepsBookPageFallbackIncomplete() async throws {
+        let bookPage = "https://fixture.invalid/book/1.html"
+        let previewChapters = (1...5).map {
+            "<a href='https://fixture.invalid/c/\($0).html'>第\($0)章 预览</a>"
+        }.joined()
+        let bookHtml = "<html><body><a class='toc' href='https://fixture.invalid/book/1/toc'>目录</a>"
+            + "<div id='latest'>\(previewChapters)</div></body></html>"
+        // The declared TOC page is not in the fixture, so the fetch fails and only the
+        // book-info preview (latest 5 chapters) is available.
+        let fixture = TocFixturePages([bookPage: bookHtml])
+        let source = BookSource(bookSourceName: "Fixture", bookSourceUrl: "https://fixture.invalid",
+                                ruleBookInfo: RuleBookInfo(tocUrl: "a.toc@href"),
+                                ruleToc: RuleToc(chapterList: "#latest a", chapterName: "text", chapterUrl: "href"))
+        let result = try await LegadoParser.shared.fetchToc(
+            bookUrl: bookPage, source: source, maxPages: 10,
+            fetchPage: { try await fixture.fetch($0, referer: $1) }
+        )
+        XCTAssertEqual(result.chapters.count, 5)
+        XCTAssertFalse(result.complete, "a preview-only fallback must never be labelled complete")
+    }
 }

@@ -417,15 +417,22 @@ public class LegadoParser {
         var currentHtml = bookHtml
         var currentURL = finalBookUrl
 
-        // 1. Prefer a separate TOC page when the book-info rule points at one.
+        // 1. Prefer a separate TOC page when the book-info rule points at one. When that page is
+        //    declared but cannot be fetched/parsed, the book-info fallback below is only a preview
+        //    (often "latest 5 chapters"), so the whole result must stay incomplete.
+        var separateTocUnavailable = false
         if let separateTocUrl = resolveTocUrl(html: bookHtml, baseUrl: finalBookUrl, source: source),
-           separateTocUrl != finalBookUrl.absoluteString,
-           let (tocHtml, finalTocUrl) = try? await fetchPage(separateTocUrl, finalBookUrl.absoluteString) {
-            let provisional = (try? parseToc(html: tocHtml, baseUrl: finalTocUrl, source: source)) ?? []
-            if provisional.count >= 3 {
-                currentHtml = tocHtml
-                currentURL = finalTocUrl
+           separateTocUrl != finalBookUrl.absoluteString {
+            var usedSeparateToc = false
+            if let (tocHtml, finalTocUrl) = try? await fetchPage(separateTocUrl, finalBookUrl.absoluteString) {
+                let provisional = (try? parseToc(html: tocHtml, baseUrl: finalTocUrl, source: source)) ?? []
+                if provisional.count >= 3 {
+                    currentHtml = tocHtml
+                    currentURL = finalTocUrl
+                    usedSeparateToc = true
+                }
             }
+            separateTocUnavailable = !usedSeparateToc
         }
 
         var collected: [Chapter] = []
@@ -503,6 +510,10 @@ public class LegadoParser {
                 break
             }
         }
+
+        // The source declares a dedicated TOC page but it failed: whatever the book-info page
+        // yielded is a preview only, so this catalogue can never be labelled complete.
+        if separateTocUnavailable { complete = false }
 
         let chapters = collected.enumerated().map { offset, chapter in
             Chapter(index: offset, title: chapter.title, url: chapter.url)
