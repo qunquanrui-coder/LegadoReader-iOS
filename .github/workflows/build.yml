@@ -149,7 +149,19 @@ jobs:
       - name: Verify public release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isLatest,assets \
-            --jq '.tagName, .isDraft, .isLatest, (.assets[] | .name + " " + (.size|tostring))'
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,assets > release.json
+          python3 - <<'PY'
+          import json, os
+          data = json.load(open('release.json'))
+          assert data['tagName'] == os.environ['TAG_NAME'], data['tagName']
+          assert data['isDraft'] is False
+          expected = sorted(['LegadoReader-unsigned.ipa', 'LegadoReader-iPhoneDuo-unsigned.ipa'])
+          names = sorted(asset['name'] for asset in data['assets'])
+          assert names == expected, names
+          for asset in data['assets']:
+              assert asset['size'] > 1_000_000, asset
+          print('release verified:', data['tagName'], names)
+          PY
 
