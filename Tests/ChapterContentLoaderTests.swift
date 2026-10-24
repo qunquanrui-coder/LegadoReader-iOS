@@ -173,4 +173,12 @@ final class ChapterContentLoaderTests: XCTestCase {
             XCTFail("Repeated pages must not masquerade as a complete chapter")
         } catch ChapterLoadingError.paginationLoop { }
     }
+
+    func testUnsupportedContinuationCannotSilentlyFinishChapter() async throws {
+        let pages = FixturePages([first: page("前半章。", next: "javascript:loadNextPage()")])
+        do {
+            _ = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
+            XCTFail("An unresolved continuation must not be cached as a complete chapter")
+        } catch ChapterLoadingError.ambiguousNextPage { }
+    }
 }

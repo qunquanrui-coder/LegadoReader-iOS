@@ -126,11 +126,14 @@ public final class ChapterContentLoader {
                 }
             }
         }
-        guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
-              let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+        guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             if unfinished { throw ChapterLoadingError.ambiguousNextPage }
             return nil
+        }
+        guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            // An active but unsupported link is not proof that the chapter has ended.
+            throw ChapterLoadingError.ambiguousNextPage
         }
         let key = canonicalURL(url.absoluteString)
         let disabledTarget = anchors.contains { anchor in
