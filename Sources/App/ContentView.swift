@@ -55,9 +55,9 @@ struct SettingsView: View {
                         }
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("风读小说 · PureRead")
+                            Text("风读小说 · iPhone Duo 专享版")
                                 .font(.system(size: 18, weight: .bold, design: .serif))
-                            Text("v2.0.0 · 旗舰重制版")
+                            Text("v3.1.0 · 支持 5.4\" 外屏 & 7.6\" 折叠内屏双页对开")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

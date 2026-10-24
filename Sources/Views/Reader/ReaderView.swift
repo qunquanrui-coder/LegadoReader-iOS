@@ -14,6 +14,7 @@ public enum ChapterCacheScope {
 
 public struct ReaderView: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject var storage = StorageManager.shared
     @ObservedObject var speech = SpeechSynthesizerManager.shared
     
@@ -22,6 +23,8 @@ public struct ReaderView: View {
     @State private var currentChapterIndex: Int
     @State private var currentParagraphIndex: Int
     @State private var currentPageIndex: Int = 0
+    @State private var currentSpreadIndex: Int = 0
+    @State private var showDuoSidebarTOC: Bool = false
     @State private var currentContent: String = ""
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -155,6 +158,31 @@ public struct ReaderView: View {
         return pages
     }
     
+    /// Pairs `paginatedPages` into 2-page book spreads (Left Page 2k, Right Page 2k+1) for iPhone Duo 7.6" unfolded display
+    private var duoBookSpreads: [(left: [PaginatedParagraph], right: [PaginatedParagraph]?)] {
+        let pages = paginatedPages
+        guard !pages.isEmpty else { return [] }
+        var spreads: [(left: [PaginatedParagraph], right: [PaginatedParagraph]?)] = []
+        var idx = 0
+        while idx < pages.count {
+            let leftPage = pages[idx]
+            let rightPage = (idx + 1 < pages.count) ? pages[idx + 1] : nil
+            spreads.append((left: leftPage, right: rightPage))
+            idx += 2
+        }
+        return spreads
+    }
+    
+    private var isDuoSpreadActive: Bool {
+        if storage.readerConfig.effectivePageTurnMode == .duoSpread {
+            return true
+        }
+        if storage.readerConfig.effectiveAutoDuoSpread && horizontalSizeClass == .regular {
+            return true
+        }
+        return false
+    }
+    
     public var body: some View {
         ZStack {
             // Theme Background
@@ -181,7 +209,7 @@ public struct ReaderView: View {
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(.indigo)
                     } else {
-                        Text("第 \(currentParagraphIndex + 1) 段 · \(book.sourceName)")
+                        Text("\(isDuoSpreadActive ? "iPhone Duo 双屏 · " : "")第 \(currentParagraphIndex + 1) 段 · \(book.sourceName)")
                             .font(.system(size: 10))
                             .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.42))
                     }
@@ -189,11 +217,13 @@ public struct ReaderView: View {
                 .padding(.horizontal, 22)
                 .padding(.vertical, 6)
                 
-                // Main Reading Area: Vertical Scroll OR Horizontal Slide Pages
+                // Main Reading Area: Vertical Scroll, Horizontal Slide, OR iPhone Duo Dual-Page Book Spread
                 if isLoading {
                     loadingStateView
                 } else if let error = errorMessage {
                     errorStateView(error)
+                } else if isDuoSpreadActive {
+                    duoBookSpreadReaderView
                 } else if storage.readerConfig.effectivePageTurnMode == .horizontalSlide {
                     horizontalPageReaderView
                 } else {
@@ -209,7 +239,11 @@ public struct ReaderView: View {
                     Spacer()
                     if !chapters.isEmpty {
                         let pct = min(100.0, Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0)
-                        if storage.readerConfig.effectivePageTurnMode == .horizontalSlide && !paginatedPages.isEmpty {
+                        if isDuoSpreadActive && !duoBookSpreads.isEmpty {
+                            Text(String(format: "双页对开 %d/%d 组 · %d/%d 章 (%.1f%%)", min(currentSpreadIndex + 1, duoBookSpreads.count), duoBookSpreads.count, currentChapterIndex + 1, chapters.count, pct))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
+                        } else if storage.readerConfig.effectivePageTurnMode == .horizontalSlide && !paginatedPages.isEmpty {
                             Text(String(format: "第 %d/%d 页 · %d/%d 章 (%.1f%%)", min(currentPageIndex + 1, paginatedPages.count), paginatedPages.count, currentChapterIndex + 1, chapters.count, pct))
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
@@ -464,7 +498,6 @@ public struct ReaderView: View {
         isRestoringPosition = true
         currentParagraphIndex = clamped
         
-        // Two-stage scroll on LazyVStack ensures intermediate cells materialize and target lands at top
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
             withAnimation(.none) {
                 proxy.scrollTo("para_\(clamped)", anchor: .top)
@@ -581,6 +614,244 @@ public struct ReaderView: View {
         }
     }
     
+    // MARK: - 3. iPhone Duo 7.6" Dual-Page Book Spread & Split-Screen View
+    private var duoBookSpreadReaderView: some View {
+        GeometryReader { geo in
+            let halfWidth = max(140, (geo.size.width - 18) / 2.0)
+            if showDuoSidebarTOC {
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack {
+                            Label("iPhone Duo 左屏目录", systemImage: "sidebar.left")
+                                .font(.system(size: 13, weight: .bold, design: .serif))
+                                .foregroundColor(storage.readerConfig.theme.textColor)
+                            Spacer()
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showDuoSidebarTOC = false
+                                }
+                            } label: {
+                                Text("切换双页")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.indigo.opacity(0.15))
+                                    .foregroundColor(.indigo)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        
+                        Divider()
+                        
+                        ScrollViewReader { tocProxy in
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(chapters) { ch in
+                                        let isCurrent = ch.index == currentChapterIndex
+                                        Button {
+                                            switchChapter(to: ch.index, proxy: nil)
+                                        } label: {
+                                            HStack {
+                                                Text(ch.title)
+                                                    .font(.system(size: 13, weight: isCurrent ? .bold : .regular))
+                                                    .foregroundColor(isCurrent ? .indigo : storage.readerConfig.theme.textColor.opacity(0.85))
+                                                    .lineLimit(1)
+                                                Spacer()
+                                                if storage.isChapterCached(bookId: book.id, chapterIndex: ch.index) {
+                                                    Text("已缓存")
+                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .foregroundColor(.green)
+                                                }
+                                            }
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 10)
+                                            .background(isCurrent ? Color.indigo.opacity(0.10) : Color.clear)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .id("duo_toc_\(ch.index)")
+                                        Divider().opacity(0.35)
+                                    }
+                                }
+                            }
+                            .onAppear {
+                                tocProxy.scrollTo("duo_toc_\(currentChapterIndex)", anchor: .center)
+                            }
+                        }
+                    }
+                    .frame(width: halfWidth)
+                    
+                    duoCenterHingeCrease
+                    
+                    verticalScrollReaderView
+                        .frame(width: halfWidth)
+                }
+            } else {
+                let spreads = duoBookSpreads
+                ZStack {
+                    TabView(selection: $currentSpreadIndex) {
+                        ForEach(Array(spreads.enumerated()), id: \.offset) { spreadIdx, spread in
+                            HStack(spacing: 0) {
+                                duoSingleBookPage(
+                                    items: spread.left,
+                                    showChapterTitle: spreadIdx == 0,
+                                    pageNumberText: "第 \(spreadIdx * 2 + 1) 页",
+                                    isLeftPage: true
+                                )
+                                .frame(width: halfWidth)
+                                
+                                duoCenterHingeCrease
+                                
+                                if let rightItems = spread.right {
+                                    duoSingleBookPage(
+                                        items: rightItems,
+                                        showChapterTitle: false,
+                                        pageNumberText: "第 \(spreadIdx * 2 + 2) 页",
+                                        isLeftPage: false
+                                    )
+                                    .frame(width: halfWidth)
+                                } else {
+                                    VStack {
+                                        Spacer()
+                                        Text("— 本章完 · 点击右侧进入下一章 —")
+                                            .font(.system(size: 12, design: .serif))
+                                            .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.4))
+                                        Spacer()
+                                    }
+                                    .frame(width: halfWidth)
+                                }
+                            }
+                            .tag(spreadIdx)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .onChange(of: currentSpreadIndex) { newSpread in
+                        if newSpread >= 0 && newSpread < spreads.count, let firstPara = spreads[newSpread].left.first {
+                            currentParagraphIndex = firstPara.index
+                            currentPageIndex = newSpread * 2
+                            saveProgress()
+                        }
+                    }
+                    
+                    HStack(spacing: 0) {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(width: geo.size.width * 0.25)
+                            .onTapGesture {
+                                if showHUD {
+                                    withAnimation { showHUD = false }
+                                } else if currentSpreadIndex > 0 {
+                                    withAnimation(.easeInOut(duration: 0.22)) {
+                                        currentSpreadIndex -= 1
+                                    }
+                                } else if currentChapterIndex > 0 {
+                                    switchChapter(to: currentChapterIndex - 1, proxy: nil)
+                                }
+                            }
+                        
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(width: geo.size.width * 0.50)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showHUD.toggle()
+                                }
+                            }
+                        
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(width: geo.size.width * 0.25)
+                            .onTapGesture {
+                                if showHUD {
+                                    withAnimation { showHUD = false }
+                                } else if currentSpreadIndex < spreads.count - 1 {
+                                    withAnimation(.easeInOut(duration: 0.22)) {
+                                        currentSpreadIndex += 1
+                                    }
+                                } else if currentChapterIndex < chapters.count - 1 {
+                                    switchChapter(to: currentChapterIndex + 1, proxy: nil)
+                                }
+                            }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func duoSingleBookPage(items: [PaginatedParagraph], showChapterTitle: Bool, pageNumberText: String, isLeftPage: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 11) {
+                    if showChapterTitle, let chapter = currentChapter {
+                        Text(storage.readerConfig.effectiveChineseConversion.convert(chapter.title))
+                            .font(.system(
+                                size: storage.readerConfig.fontSize + 3,
+                                weight: .bold,
+                                design: storage.readerConfig.fontDesign.swiftUIDesign
+                            ))
+                            .foregroundColor(storage.readerConfig.theme.textColor)
+                            .padding(.top, 6)
+                            .padding(.bottom, 4)
+                    }
+                    
+                    ForEach(items) { item in
+                        let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == item.index
+                        Text(item.text)
+                            .font(.system(
+                                size: storage.readerConfig.fontSize,
+                                design: storage.readerConfig.fontDesign.swiftUIDesign
+                            ))
+                            .lineSpacing(storage.readerConfig.lineSpacing)
+                            .foregroundColor(isSpoken ? .indigo : storage.readerConfig.theme.textColor)
+                            .background(isSpoken ? Color.indigo.opacity(0.10) : Color.clear)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+            }
+            
+            HStack {
+                if isLeftPage {
+                    Text(pageNumberText)
+                        .font(.system(size: 10, design: .serif))
+                        .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.38))
+                    Spacer()
+                } else {
+                    Spacer()
+                    Text(pageNumberText)
+                        .font(.system(size: 10, design: .serif))
+                        .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.38))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 4)
+        }
+    }
+    
+    private var duoCenterHingeCrease: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.02),
+                    Color.black.opacity(0.14),
+                    Color.black.opacity(0.26),
+                    Color.white.opacity(0.08),
+                    Color.black.opacity(0.12),
+                    Color.black.opacity(0.01)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            Rectangle()
+                .fill(Color.black.opacity(0.18))
+                .frame(width: 1)
+        }
+        .frame(width: 18)
+    }
+    
     // MARK: - Floating TTS Control Bar (with Neural Voice Actor Selector)
     private var ttsControlOverlay: some View {
         VStack(spacing: 12) {
@@ -641,7 +912,6 @@ public struct ReaderView: View {
                 
                 Spacer()
                 
-                // Neural Voice Actor Selector
                 Menu {
                     ForEach(NeuralVoiceActor.allCases) { actor in
                         Button {
@@ -669,7 +939,6 @@ public struct ReaderView: View {
                     .clipShape(Capsule())
                 }
                 
-                // Speed Multiplier Selector
                 Menu {
                     ForEach([Float(0.8), Float(1.0), Float(1.25), Float(1.5)], id: \.self) { rate in
                         Button(String(format: "%.2gx 语速", rate)) {
@@ -686,7 +955,6 @@ public struct ReaderView: View {
                         .clipShape(Capsule())
                 }
                 
-                // Sleep Timer Selector
                 Menu {
                     Button("关闭定时") { speech.setSleepTimer(minutes: nil) }
                     Button("15 分钟后停止") { speech.setSleepTimer(minutes: 15) }
@@ -708,9 +976,9 @@ public struct ReaderView: View {
         .padding(.horizontal, 16)
     }
     
-    // MARK: - Top HUD Bar (with Multi-Option & Full-Book Cache Menu)
+    // MARK: - Top HUD Bar (with Duo Split-TOC Toggle & Multi-Option Cache Menu)
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button {
                 saveProgress()
                 dismiss()
@@ -734,7 +1002,26 @@ public struct ReaderView: View {
             
             Spacer()
             
-            // Cache Menu: 30 Chapters / 100 Chapters / Remaining / Full Book
+            if isDuoSpreadActive {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showDuoSidebarTOC.toggle()
+                        showHUD = false
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: showDuoSidebarTOC ? "book.pages.fill" : "sidebar.left")
+                        Text(showDuoSidebarTOC ? "双页" : "左屏目录")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(Color.purple.opacity(0.15))
+                    .foregroundColor(.purple)
+                    .clipShape(Capsule())
+                }
+            }
+            
             if isCachingChapters {
                 Button {
                     activeCacheTask?.cancel()
@@ -945,6 +1232,7 @@ public struct ReaderView: View {
             let pages = self.paginatedPages
             if let pageIdx = pages.firstIndex(where: { $0.contains(where: { $0.index == idx }) }) {
                 self.currentPageIndex = pageIdx
+                self.currentSpreadIndex = pageIdx / 2
             }
         }
         speech.onChapterFinished = {
@@ -960,7 +1248,6 @@ public struct ReaderView: View {
         isLoading = true
         errorMessage = nil
         
-        // Ensure book is on shelf so progress is always tracked
         if !storage.bookshelf.contains(where: { $0.title == book.title && $0.author == book.author }) {
             storage.addBookToShelf(book)
         }
@@ -1000,6 +1287,7 @@ public struct ReaderView: View {
         currentChapterIndex = newIndex
         currentParagraphIndex = 0
         currentPageIndex = 0
+        currentSpreadIndex = 0
         targetRestoreParagraph = nil
         isRestoringPosition = false
         visibleParagraphIndices.removeAll()
@@ -1062,6 +1350,7 @@ public struct ReaderView: View {
         let pages = paginatedPages
         if let targetPage = pages.firstIndex(where: { $0.contains(where: { $0.index >= target }) }) {
             currentPageIndex = targetPage
+            currentSpreadIndex = targetPage / 2
         }
     }
     

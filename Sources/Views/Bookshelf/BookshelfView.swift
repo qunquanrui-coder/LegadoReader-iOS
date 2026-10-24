@@ -1,16 +1,25 @@
 import SwiftUI
 
 public struct BookshelfView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject var storage = StorageManager.shared
     @State private var selectedBook: Book?
     @State private var showingSearch = false
     @State private var isGridView = true
     
-    private let columns = [
-        GridItem(.flexible(), spacing: 18),
-        GridItem(.flexible(), spacing: 18),
-        GridItem(.flexible(), spacing: 18)
-    ]
+    private var adaptiveColumns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            // iPhone Duo 7.6" Unfolded Inner Display: 5-column spacious book gallery
+            return [GridItem(.adaptive(minimum: 112), spacing: 20)]
+        } else {
+            // iPhone Duo 5.4" Outer Display / Standard iPhone: 3-column grid
+            return [
+                GridItem(.flexible(), spacing: 18),
+                GridItem(.flexible(), spacing: 18),
+                GridItem(.flexible(), spacing: 18)
+            ]
+        }
+    }
     
     public init() {}
     
@@ -59,7 +68,7 @@ public struct BookshelfView: View {
                         
                         // Bookshelf Grid or List
                         if isGridView {
-                            LazyVGrid(columns: columns, spacing: 22) {
+                            LazyVGrid(columns: adaptiveColumns, spacing: 22) {
                                 ForEach(storage.bookshelf) { book in
                                     BookshelfGridItem(book: book)
                                         .onTapGesture {

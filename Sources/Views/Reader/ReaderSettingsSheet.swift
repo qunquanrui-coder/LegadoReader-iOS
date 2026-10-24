@@ -16,22 +16,26 @@ public struct ReaderSettingsSheet: View {
                 
                 // 1. Page Turn Mode & Chinese Conversion
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("翻页模式与繁简转换")
+                    Text("翻页模式与 iPhone Duo 双屏适配")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.secondary)
                     
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         ForEach(ReaderPageTurnMode.allCases, id: \.self) { mode in
                             let isSelected = storage.readerConfig.effectivePageTurnMode == mode
+                            let iconName = mode == .verticalScroll
+                                ? "arrow.up.and.down.square"
+                                : (mode == .horizontalSlide ? "rectangle.portrait.arrowtriangle.2.outward" : "book.pages.fill")
                             Button {
                                 storage.readerConfig.effectivePageTurnMode = mode
                                 storage.saveConfig()
                             } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: mode == .verticalScroll ? "arrow.up.and.down.square" : "book.pages")
-                                        .font(.system(size: 13))
+                                HStack(spacing: 4) {
+                                    Image(systemName: iconName)
+                                        .font(.system(size: 12))
                                     Text(mode.rawValue)
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .lineLimit(1)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 9)
@@ -45,6 +49,30 @@ public struct ReaderSettingsSheet: View {
                             }
                         }
                     }
+                    
+                    Toggle(isOn: Binding(
+                        get: { storage.readerConfig.effectiveAutoDuoSpread },
+                        set: { val in
+                            storage.readerConfig.effectiveAutoDuoSpread = val
+                            storage.saveConfig()
+                        }
+                    )) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "rectangle.split.2x1.fill")
+                                .foregroundColor(.indigo)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("iPhone Duo 展开内屏自动双页对开")
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text("合上 5.4\" 外屏单页阅读，展开 7.6\" 内屏自动切换实体书左右双页")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .tint(.indigo)
+                    .padding(10)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     
                     HStack(spacing: 10) {
                         ForEach(ChineseConversionMode.allCases, id: \.self) { conv in

@@ -64,6 +64,7 @@ public enum ReaderFontDesign: String, CaseIterable, Codable {
 public enum ReaderPageTurnMode: String, CaseIterable, Codable {
     case verticalScroll = "上下滚动"
     case horizontalSlide = "左右翻页"
+    case duoSpread = "Duo 双页书本"
 }
 
 public enum ChineseConversionMode: String, CaseIterable, Codable {
@@ -91,10 +92,16 @@ public struct ReaderConfig: Codable, Equatable {
     public var pageTurnMode: ReaderPageTurnMode?
     public var chineseConversion: ChineseConversionMode?
     public var customPurifyRules: [String]?
+    public var autoDuoBookSpread: Bool?
     
     public var effectivePageTurnMode: ReaderPageTurnMode {
         get { pageTurnMode ?? .verticalScroll }
         set { pageTurnMode = newValue }
+    }
+    
+    public var effectiveAutoDuoSpread: Bool {
+        get { autoDuoBookSpread ?? true }
+        set { autoDuoBookSpread = newValue }
     }
     
     public var effectiveChineseConversion: ChineseConversionMode {
@@ -114,7 +121,8 @@ public struct ReaderConfig: Codable, Equatable {
         fontDesign: .serif,
         pageTurnMode: .verticalScroll,
         chineseConversion: .original,
-        customPurifyRules: []
+        customPurifyRules: [],
+        autoDuoBookSpread: true
     )
 }
 
