@@ -13,6 +13,7 @@ public class StorageManager: ObservableObject {
     private let sourcesKey = "LegadoReader_BookSources_v2_1"
     private let configKey = "LegadoReader_ReaderConfig_v2"
     private let historyKey = "LegadoReader_SearchHistory_v2"
+    private let positionMapKey = "LegadoReader_PositionMap_v3_1"
     
     private let fileManager = FileManager.default
     private var cacheDirectory: URL {
@@ -109,15 +110,49 @@ public class StorageManager: ObservableObject {
         try? fileManager.removeItem(at: bookDir)
     }
     
-    public func updateBookProgress(bookId: String, chapterIndex: Int, chapterTitle: String, totalChapters: Int, paragraphIndex: Int = 0) {
-        if let index = bookshelf.firstIndex(where: { $0.id == bookId }) {
+    public func updateBookProgress(
+        bookId: String,
+        bookTitle: String? = nil,
+        bookAuthor: String? = nil,
+        chapterIndex: Int,
+        chapterTitle: String,
+        totalChapters: Int,
+        paragraphIndex: Int = 0
+    ) {
+        if let index = bookshelf.firstIndex(where: {
+            $0.id == bookId || (bookTitle != nil && $0.title == bookTitle && $0.author == bookAuthor)
+        }) {
             bookshelf[index].currentChapterIndex = chapterIndex
             bookshelf[index].currentChapterTitle = chapterTitle
             bookshelf[index].currentParagraphIndex = paragraphIndex
             bookshelf[index].totalChapters = max(bookshelf[index].totalChapters, totalChapters)
             bookshelf[index].lastReadTime = Date()
+            let t = bookshelf[index].title
+            let a = bookshelf[index].author
+            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex)
             saveBookshelf()
+        } else if let t = bookTitle, let a = bookAuthor {
+            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex)
         }
+    }
+    
+    private func savePositionEntry(title: String, author: String, chapterIndex: Int, paragraphIndex: Int) {
+        let key = "\(title.trimmingCharacters(in: .whitespacesAndNewlines))_\(author.trimmingCharacters(in: .whitespacesAndNewlines))"
+        var map = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
+        map[key] = [chapterIndex, paragraphIndex]
+        UserDefaults.standard.set(map, forKey: positionMapKey)
+    }
+    
+    public func getSavedReadingPosition(for book: Book) -> (chapterIndex: Int, paragraphIndex: Int) {
+        let key = "\(book.title.trimmingCharacters(in: .whitespacesAndNewlines))_\(book.author.trimmingCharacters(in: .whitespacesAndNewlines))"
+        if let map = UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]],
+           let pair = map[key], pair.count >= 2 {
+            return (pair[0], pair[1])
+        }
+        if let shelfBook = bookshelf.first(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
+            return (shelfBook.currentChapterIndex, shelfBook.currentParagraphIndex ?? 0)
+        }
+        return (book.currentChapterIndex, book.currentParagraphIndex ?? 0)
     }
     
     public func saveBookshelf() {

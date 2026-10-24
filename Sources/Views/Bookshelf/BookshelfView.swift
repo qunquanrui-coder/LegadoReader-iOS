@@ -165,7 +165,8 @@ public struct BookshelfView: View {
                     HStack {
                         if book.totalChapters > 0 {
                             let pct = min(100, Int((Double(book.currentChapterIndex + 1) / Double(book.totalChapters)) * 100))
-                            Text("已读 \(pct)% · 第\(book.currentChapterIndex + 1)章")
+                            let paraNum = (book.currentParagraphIndex ?? 0) + 1
+                            Text("已读 \(pct)% · 第\(book.currentChapterIndex + 1)章 · 第\(paraNum)段")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.indigo)
                         } else {

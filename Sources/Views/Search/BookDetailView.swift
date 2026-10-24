@@ -9,6 +9,9 @@ public struct BookDetailView: View {
     @State private var isReading = false
     @State private var showChangeSource = false
     @State private var showAllChapters = false
+    @State private var isCachingFullBook = false
+    @State private var fullCacheStatusText: String? = nil
+    @State private var cacheTask: Task<Void, Never>? = nil
     
     public init(book: Book) {
         _book = State(initialValue: book)
@@ -110,12 +113,17 @@ public struct BookDetailView: View {
                     }
                     
                     Button {
-                        storage.addBookToShelf(book)
+                        if let saved = storage.bookshelf.first(where: { $0.title == book.title && $0.author == book.author }) {
+                            book.currentChapterIndex = saved.currentChapterIndex
+                            book.currentParagraphIndex = saved.currentParagraphIndex
+                        } else {
+                            storage.addBookToShelf(book)
+                        }
                         isReading = true
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "book.fill")
-                            Text("立即阅读")
+                            Text(isAddedToShelf ? "继续阅读" : "立即阅读")
                         }
                         .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity)
@@ -131,6 +139,47 @@ public struct BookDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .shadow(color: Color.indigo.opacity(0.3), radius: 6, x: 0, y: 3)
                     }
+                    
+                    Button {
+                        if isCachingFullBook {
+                            cacheTask?.cancel()
+                            isCachingFullBook = false
+                            fullCacheStatusText = "已暂停缓存"
+                        } else {
+                            startFullBookCache()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: isCachingFullBook ? "stop.circle.fill" : "arrow.down.to.line.circle.fill")
+                            Text(isCachingFullBook ? "停止" : "全本缓存")
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 13)
+                        .background(Color.orange.opacity(0.15))
+                        .foregroundColor(.orange)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .disabled(chapters.isEmpty)
+                }
+                
+                if let status = fullCacheStatusText {
+                    HStack(spacing: 8) {
+                        if isCachingFullBook {
+                            ProgressView().scaleEffect(0.75)
+                        } else {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.green)
+                        }
+                        Text(status)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.indigo)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(Capsule())
                 }
                 
                 // Synopsis Card
@@ -208,7 +257,17 @@ public struct BookDetailView: View {
                                 Button {
                                     book.currentChapterIndex = ch.index
                                     book.currentChapterTitle = ch.title
+                                    book.currentParagraphIndex = 0
                                     storage.addBookToShelf(book)
+                                    storage.updateBookProgress(
+                                        bookId: book.id,
+                                        bookTitle: book.title,
+                                        bookAuthor: book.author,
+                                        chapterIndex: ch.index,
+                                        chapterTitle: ch.title,
+                                        totalChapters: chapters.count,
+                                        paragraphIndex: 0
+                                    )
                                     isReading = true
                                 } label: {
                                     HStack {
@@ -266,16 +325,77 @@ public struct BookDetailView: View {
                 currentIndex: book.currentChapterIndex,
                 onSelectChapter: { idx in
                     book.currentChapterIndex = idx
+                    book.currentParagraphIndex = 0
                     if idx < chapters.count {
                         book.currentChapterTitle = chapters[idx].title
                     }
                     storage.addBookToShelf(book)
+                    storage.updateBookProgress(
+                        bookId: book.id,
+                        bookTitle: book.title,
+                        bookAuthor: book.author,
+                        chapterIndex: idx,
+                        chapterTitle: idx < chapters.count ? chapters[idx].title : "",
+                        totalChapters: chapters.count,
+                        paragraphIndex: 0
+                    )
                     isReading = true
                 }
             )
         }
         .fullScreenCover(isPresented: $isReading) {
             ReaderView(book: book)
+        }
+    }
+    
+    private func startFullBookCache() {
+        guard !chapters.isEmpty else { return }
+        storage.addBookToShelf(book)
+        isCachingFullBook = true
+        let allChapters = chapters
+        let total = allChapters.count
+        fullCacheStatusText = "正在启动全本高速缓存 (0/\(total) 章)..."
+        
+        let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
+            ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
+        let bookId = book.id
+        let bookUrl = book.bookUrl
+        
+        cacheTask?.cancel()
+        cacheTask = Task {
+            var completed = 0
+            let chunkSize = 6
+            for chunkStart in stride(from: 0, to: total, by: chunkSize) {
+                guard !Task.isCancelled else { break }
+                let chunkEnd = min(total, chunkStart + chunkSize)
+                let slice = Array(allChapters[chunkStart..<chunkEnd])
+                
+                await withTaskGroup(of: Void.self) { group in
+                    for ch in slice {
+                        group.addTask {
+                            guard !Task.isCancelled else { return }
+                            if !StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index) {
+                                if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: ch.url, referer: bookUrl),
+                                   let text = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
+                                   text.count >= 50 {
+                                    StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: text)
+                                }
+                            }
+                        }
+                    }
+                }
+                completed = chunkEnd
+                let doneNow = completed
+                let pct = Int(Double(doneNow) / Double(max(1, total)) * 100.0)
+                await MainActor.run {
+                    self.fullCacheStatusText = "正在全本缓存 \(doneNow)/\(total) 章 (\(pct)%)"
+                }
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self.isCachingFullBook = false
+                self.fullCacheStatusText = "全本 \(total) 章已全部缓存完成，支持纯离线阅读！"
+            }
         }
     }
     

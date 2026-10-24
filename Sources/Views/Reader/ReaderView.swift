@@ -6,6 +6,12 @@ public struct PaginatedParagraph: Identifiable, Equatable {
     public let text: String
 }
 
+public enum ChapterCacheScope {
+    case nextCount(Int)
+    case allRemaining
+    case entireBook
+}
+
 public struct ReaderView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var storage = StorageManager.shared
@@ -24,13 +30,28 @@ public struct ReaderView: View {
     @State private var showChapterList = false
     @State private var showSettings = false
     @State private var showChangeSource = false
+    
+    // Batch / Full-Book Caching State
     @State private var cacheProgressText: String? = nil
-    @State private var shouldRestoreParagraphOffset = true
+    @State private var isCachingChapters = false
+    @State private var activeCacheTask: Task<Void, Never>? = nil
+    
+    // Intra-Chapter Paragraph Restoration State
+    @State private var targetRestoreParagraph: Int? = nil
+    @State private var isRestoringPosition: Bool = false
+    @State private var visibleParagraphIndices: Set<Int> = []
+    @State private var restoreToastMessage: String? = nil
     
     public init(book: Book) {
-        _book = State(initialValue: book)
-        _currentChapterIndex = State(initialValue: book.currentChapterIndex)
-        _currentParagraphIndex = State(initialValue: book.currentParagraphIndex ?? 0)
+        let saved = StorageManager.shared.getSavedReadingPosition(for: book)
+        var initialBook = book
+        initialBook.currentChapterIndex = saved.chapterIndex
+        initialBook.currentParagraphIndex = saved.paragraphIndex
+        _book = State(initialValue: initialBook)
+        _currentChapterIndex = State(initialValue: saved.chapterIndex)
+        _currentParagraphIndex = State(initialValue: saved.paragraphIndex)
+        _targetRestoreParagraph = State(initialValue: saved.paragraphIndex > 0 ? saved.paragraphIndex : nil)
+        _isRestoringPosition = State(initialValue: saved.paragraphIndex > 0)
     }
     
     private var currentChapter: Chapter? {
@@ -106,7 +127,6 @@ public struct ReaderView: View {
         let paras = formattedParagraphs
         guard !paras.isEmpty else { return [] }
         
-        // Approximate character budget per page based on font size & line spacing
         let fontFactor = max(14.0, Double(storage.readerConfig.fontSize))
         let spacingFactor = max(4.0, Double(storage.readerConfig.lineSpacing))
         let charsPerLine = max(14, Int(340.0 / fontFactor))
@@ -115,7 +135,7 @@ public struct ReaderView: View {
         
         var pages: [[PaginatedParagraph]] = []
         var currentPage: [PaginatedParagraph] = []
-        var currentLinesUsed = 2 // Reserve space for chapter title on first page
+        var currentLinesUsed = 2
         
         for (idx, para) in paras.enumerated() {
             let estimatedLines = max(1, Int(ceil(Double(para.count) / Double(charsPerLine)))) + 1
@@ -152,18 +172,18 @@ public struct ReaderView: View {
                     if speech.isSpeaking {
                         HStack(spacing: 4) {
                             Image(systemName: "waveform")
-                            Text(speech.isPaused ? "听书已暂停" : "正在朗读")
+                            Text(speech.isPaused ? "听书已暂停" : "正在朗读 · \(speech.selectedVoice.shortName)")
                         }
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.indigo)
                     } else if let cacheMsg = cacheProgressText {
                         Text(cacheMsg)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(.indigo)
                     } else {
-                        Text(book.sourceName)
+                        Text("第 \(currentParagraphIndex + 1) 段 · \(book.sourceName)")
                             .font(.system(size: 10))
-                            .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.4))
+                            .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.42))
                     }
                 }
                 .padding(.horizontal, 22)
@@ -194,7 +214,7 @@ public struct ReaderView: View {
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
                         } else {
-                            Text(String(format: "%d/%d 章 (%.1f%%)", currentChapterIndex + 1, chapters.count, pct))
+                            Text(String(format: "第 %d/%d 段 · %d/%d 章 (%.1f%%)", min(currentParagraphIndex + 1, max(1, formattedParagraphs.count)), max(1, formattedParagraphs.count), currentChapterIndex + 1, chapters.count, pct))
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
                         }
@@ -202,6 +222,27 @@ public struct ReaderView: View {
                 }
                 .padding(.horizontal, 22)
                 .padding(.vertical, 6)
+            }
+            
+            // Top Toast Pill when Restoring Intra-Chapter Paragraph
+            if let toast = restoreToastMessage {
+                VStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 11))
+                        Text(toast)
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.indigo.opacity(0.92))
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+                    .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 3)
+                    .padding(.top, 42)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
             
             // Floating TTS Audio Player Bar
@@ -294,11 +335,11 @@ public struct ReaderView: View {
         .padding(.horizontal, 24)
     }
     
-    // MARK: - 1. Vertical Scroll Reader View (with Intra-Chapter Paragraph Memory)
+    // MARK: - 1. Vertical Scroll Reader View (LazyVStack for Exact Paragraph Tracking & Restoration)
     private var verticalScrollReaderView: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 14) {
                     Color.clear
                         .frame(height: 1)
                         .id("chapterTop")
@@ -315,31 +356,42 @@ public struct ReaderView: View {
                             .padding(.bottom, 6)
                     }
                     
-                    VStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 14) {
-                        ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { idx, paragraph in
-                            let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == idx
-                            Text(paragraph)
-                                .font(.system(
-                                    size: storage.readerConfig.fontSize,
-                                    design: storage.readerConfig.fontDesign.swiftUIDesign
-                                ))
-                                .lineSpacing(storage.readerConfig.lineSpacing)
-                                .foregroundColor(isSpoken ? .indigo : storage.readerConfig.theme.textColor)
-                                .padding(.vertical, isSpoken ? 4 : 0)
-                                .padding(.horizontal, isSpoken ? 6 : 0)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(isSpoken ? Color.indigo.opacity(0.10) : Color.clear)
-                                )
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("para_\(idx)")
-                                .onAppear {
-                                    if !shouldRestoreParagraphOffset {
-                                        currentParagraphIndex = idx
+                    ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { idx, paragraph in
+                        let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == idx
+                        Text(paragraph)
+                            .font(.system(
+                                size: storage.readerConfig.fontSize,
+                                design: storage.readerConfig.fontDesign.swiftUIDesign
+                            ))
+                            .lineSpacing(storage.readerConfig.lineSpacing)
+                            .foregroundColor(isSpoken ? .indigo : storage.readerConfig.theme.textColor)
+                            .padding(.vertical, isSpoken ? 4 : 0)
+                            .padding(.horizontal, isSpoken ? 6 : 0)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(isSpoken ? Color.indigo.opacity(0.10) : Color.clear)
+                            )
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id("para_\(idx)")
+                            .onAppear {
+                                visibleParagraphIndices.insert(idx)
+                                if !isRestoringPosition, let topIdx = visibleParagraphIndices.min() {
+                                    if topIdx != currentParagraphIndex {
+                                        currentParagraphIndex = topIdx
+                                        saveProgress()
                                     }
                                 }
-                        }
+                            }
+                            .onDisappear {
+                                visibleParagraphIndices.remove(idx)
+                                if !isRestoringPosition, let topIdx = visibleParagraphIndices.min() {
+                                    if topIdx != currentParagraphIndex {
+                                        currentParagraphIndex = topIdx
+                                        saveProgress()
+                                    }
+                                }
+                            }
                     }
                     
                     // Chapter Bottom Navigation Bar
@@ -374,7 +426,7 @@ public struct ReaderView: View {
                         }
                         .disabled(currentChapterIndex >= chapters.count - 1)
                     }
-                    .padding(.top, 36)
+                    .padding(.top, 28)
                     .padding(.bottom, 50)
                 }
                 .padding(.horizontal, 22)
@@ -386,20 +438,51 @@ public struct ReaderView: View {
                 }
             }
             .onAppear {
-                if shouldRestoreParagraphOffset && currentParagraphIndex > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        scrollProxy.scrollTo("para_\(currentParagraphIndex)", anchor: .top)
-                        shouldRestoreParagraphOffset = false
-                    }
-                } else {
-                    shouldRestoreParagraphOffset = false
-                }
+                restoreParagraphScrollIfNeeded(proxy: scrollProxy)
+            }
+            .onChange(of: currentContent) { _ in
+                restoreParagraphScrollIfNeeded(proxy: scrollProxy)
             }
             .onChange(of: speech.currentParagraphIndex) { newIdx in
                 if speech.isSpeaking {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         scrollProxy.scrollTo("para_\(newIdx)", anchor: .center)
                     }
+                }
+            }
+        }
+    }
+    
+    private func restoreParagraphScrollIfNeeded(proxy: ScrollViewProxy) {
+        let totalParas = formattedParagraphs.count
+        guard totalParas > 0 else { return }
+        guard let target = targetRestoreParagraph, target > 0 else {
+            isRestoringPosition = false
+            return
+        }
+        let clamped = min(target, totalParas - 1)
+        isRestoringPosition = true
+        currentParagraphIndex = clamped
+        
+        // Two-stage scroll on LazyVStack ensures intermediate cells materialize and target lands at top
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            withAnimation(.none) {
+                proxy.scrollTo("para_\(clamped)", anchor: .top)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            withAnimation(.none) {
+                proxy.scrollTo("para_\(clamped)", anchor: .top)
+            }
+            self.currentParagraphIndex = clamped
+            self.targetRestoreParagraph = nil
+            self.isRestoringPosition = false
+            withAnimation {
+                self.restoreToastMessage = "已自动续读至上次退出的第 \(clamped + 1) 段"
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                withAnimation {
+                    self.restoreToastMessage = nil
                 }
             }
         }
@@ -454,9 +537,7 @@ public struct ReaderView: View {
                     }
                 }
                 
-                // Left / Center / Right Tap Zones for Natural One-Handed Page Turning
                 HStack(spacing: 0) {
-                    // Left 28%: Previous Page / Chapter
                     Color.clear
                         .contentShape(Rectangle())
                         .frame(width: geo.size.width * 0.28)
@@ -472,7 +553,6 @@ public struct ReaderView: View {
                             }
                         }
                     
-                    // Center 44%: Toggle HUD
                     Color.clear
                         .contentShape(Rectangle())
                         .frame(width: geo.size.width * 0.44)
@@ -482,7 +562,6 @@ public struct ReaderView: View {
                             }
                         }
                     
-                    // Right 28%: Next Page / Chapter
                     Color.clear
                         .contentShape(Rectangle())
                         .frame(width: geo.size.width * 0.28)
@@ -502,14 +581,14 @@ public struct ReaderView: View {
         }
     }
     
-    // MARK: - Floating TTS Control Bar
+    // MARK: - Floating TTS Control Bar (with Neural Voice Actor Selector)
     private var ttsControlOverlay: some View {
         VStack(spacing: 12) {
             HStack {
                 HStack(spacing: 6) {
-                    Image(systemName: "headphones")
+                    Image(systemName: "waveform.circle.fill")
                         .foregroundColor(.indigo)
-                    Text("AI 语音听书 · 第 \(min(speech.currentParagraphIndex + 1, max(1, formattedParagraphs.count)))/\(max(1, formattedParagraphs.count)) 段")
+                    Text("真人情感听书 · 第 \(min(speech.currentParagraphIndex + 1, max(1, formattedParagraphs.count)))/\(max(1, formattedParagraphs.count)) 段")
                         .font(.system(size: 12, weight: .semibold))
                 }
                 Spacer()
@@ -531,7 +610,7 @@ public struct ReaderView: View {
                 }
             }
             
-            HStack(spacing: 18) {
+            HStack(spacing: 14) {
                 Button {
                     speech.skipPrevious()
                 } label: {
@@ -542,9 +621,15 @@ public struct ReaderView: View {
                 Button {
                     speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
                 } label: {
-                    Image(systemName: (speech.isSpeaking && !speech.isPaused) ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundColor(.indigo)
+                    ZStack {
+                        Image(systemName: (speech.isSpeaking && !speech.isPaused) ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(.indigo)
+                        if speech.isLoadingAudio {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                        }
+                    }
                 }
                 
                 Button {
@@ -556,6 +641,34 @@ public struct ReaderView: View {
                 
                 Spacer()
                 
+                // Neural Voice Actor Selector
+                Menu {
+                    ForEach(NeuralVoiceActor.allCases) { actor in
+                        Button {
+                            speech.setVoice(actor)
+                        } label: {
+                            HStack {
+                                Text(actor.displayName)
+                                if speech.selectedVoice == actor {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "person.wave.2.fill")
+                            .font(.system(size: 10))
+                        Text(speech.selectedVoice.shortName)
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundColor(.orange)
+                    .clipShape(Capsule())
+                }
+                
                 // Speed Multiplier Selector
                 Menu {
                     ForEach([Float(0.8), Float(1.0), Float(1.25), Float(1.5)], id: \.self) { rate in
@@ -565,8 +678,8 @@ public struct ReaderView: View {
                     }
                 } label: {
                     Text(String(format: "%.2gx", speech.speechRateMultiplier))
-                        .font(.system(size: 12, weight: .bold))
-                        .padding(.horizontal, 9)
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 5)
                         .background(Color.indigo.opacity(0.14))
                         .foregroundColor(.indigo)
@@ -581,8 +694,8 @@ public struct ReaderView: View {
                     Button("60 分钟后停止") { speech.setSleepTimer(minutes: 60) }
                 } label: {
                     Image(systemName: "timer")
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(7)
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(6)
                         .background(Color(.tertiarySystemGroupedBackground))
                         .clipShape(Circle())
                 }
@@ -595,9 +708,9 @@ public struct ReaderView: View {
         .padding(.horizontal, 16)
     }
     
-    // MARK: - Top HUD Bar
+    // MARK: - Top HUD Bar (with Multi-Option & Full-Book Cache Menu)
     private var topBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Button {
                 saveProgress()
                 dismiss()
@@ -621,19 +734,59 @@ public struct ReaderView: View {
             
             Spacer()
             
-            Button {
-                batchCacheChapters(count: 30)
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.down.circle")
-                    Text("缓存")
+            // Cache Menu: 30 Chapters / 100 Chapters / Remaining / Full Book
+            if isCachingChapters {
+                Button {
+                    activeCacheTask?.cancel()
+                    isCachingChapters = false
+                    cacheProgressText = "已暂停缓存"
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "stop.circle.fill")
+                        Text("停止")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.red.opacity(0.15))
+                    .foregroundColor(.red)
+                    .clipShape(Capsule())
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.indigo.opacity(0.14))
-                .foregroundColor(.indigo)
-                .clipShape(Capsule())
+            } else {
+                Menu {
+                    Button {
+                        startCaching(scope: .nextCount(30))
+                    } label: {
+                        Label("缓存后 30 章", systemImage: "arrow.down.circle")
+                    }
+                    Button {
+                        startCaching(scope: .nextCount(100))
+                    } label: {
+                        Label("缓存后 100 章", systemImage: "arrow.down.circle.fill")
+                    }
+                    Button {
+                        startCaching(scope: .allRemaining)
+                    } label: {
+                        Label("缓存后续全部章节 (\(max(0, chapters.count - currentChapterIndex))章)", systemImage: "tray.and.arrow.down.fill")
+                    }
+                    Divider()
+                    Button {
+                        startCaching(scope: .entireBook)
+                    } label: {
+                        Label("全本完整缓存 (共\(chapters.count)章)", systemImage: "books.vertical.fill")
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.down.circle")
+                        Text("缓存")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.indigo.opacity(0.14))
+                    .foregroundColor(.indigo)
+                    .clipShape(Capsule())
+                }
             }
             
             Button {
@@ -788,7 +941,7 @@ public struct ReaderView: View {
     private func setupSpeechCallbacks() {
         speech.onParagraphChanged = { idx in
             self.currentParagraphIndex = idx
-            // Sync horizontal page if in horizontal mode
+            self.saveProgress()
             let pages = self.paginatedPages
             if let pageIdx = pages.firstIndex(where: { $0.contains(where: { $0.index == idx }) }) {
                 self.currentPageIndex = pageIdx
@@ -807,6 +960,11 @@ public struct ReaderView: View {
         isLoading = true
         errorMessage = nil
         
+        // Ensure book is on shelf so progress is always tracked
+        if !storage.bookshelf.contains(where: { $0.title == book.title && $0.author == book.author }) {
+            storage.addBookToShelf(book)
+        }
+        
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         
@@ -821,6 +979,9 @@ public struct ReaderView: View {
                         self.chapters = parsedChapters
                         if self.currentChapterIndex >= parsedChapters.count {
                             self.currentChapterIndex = 0
+                            self.currentParagraphIndex = 0
+                            self.targetRestoreParagraph = nil
+                            self.isRestoringPosition = false
                         }
                         self.loadCurrentChapterContent()
                     }
@@ -839,7 +1000,9 @@ public struct ReaderView: View {
         currentChapterIndex = newIndex
         currentParagraphIndex = 0
         currentPageIndex = 0
-        shouldRestoreParagraphOffset = false
+        targetRestoreParagraph = nil
+        isRestoringPosition = false
+        visibleParagraphIndices.removeAll()
         if let proxy = proxy {
             proxy.scrollTo("chapterTop", anchor: .top)
         }
@@ -894,9 +1057,10 @@ public struct ReaderView: View {
     }
     
     private func restorePageFromParagraphIfNeeded() {
-        guard currentParagraphIndex > 0 else { return }
+        let target = targetRestoreParagraph ?? currentParagraphIndex
+        guard target > 0 else { return }
         let pages = paginatedPages
-        if let targetPage = pages.firstIndex(where: { $0.contains(where: { $0.index >= currentParagraphIndex }) }) {
+        if let targetPage = pages.firstIndex(where: { $0.contains(where: { $0.index >= target }) }) {
             currentPageIndex = targetPage
         }
     }
@@ -919,37 +1083,75 @@ public struct ReaderView: View {
         }
     }
     
-    private func batchCacheChapters(count: Int) {
-        let start = currentChapterIndex
-        let end = min(chapters.count - 1, start + count - 1)
-        guard start <= end else { return }
+    // MARK: - Concurrent Chapter Caching (30 / 100 / Remaining / Full Book)
+    private func startCaching(scope: ChapterCacheScope) {
+        guard !chapters.isEmpty else { return }
+        let startIdx: Int
+        let endIdx: Int
+        switch scope {
+        case .nextCount(let count):
+            startIdx = currentChapterIndex
+            endIdx = min(chapters.count - 1, currentChapterIndex + count - 1)
+        case .allRemaining:
+            startIdx = currentChapterIndex
+            endIdx = chapters.count - 1
+        case .entireBook:
+            startIdx = 0
+            endIdx = chapters.count - 1
+        }
+        guard startIdx <= endIdx else { return }
         
+        let targetChapters = Array(chapters[startIdx...endIdx])
+        let total = targetChapters.count
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
+        let bookId = book.id
+        let bookUrl = book.bookUrl
         
         showHUD = false
-        cacheProgressText = "正在缓存 0/\(end - start + 1)..."
+        isCachingChapters = true
+        cacheProgressText = "正在高速缓存 0/\(total) 章..."
         
-        Task {
-            var done = 0
-            let total = end - start + 1
-            for idx in start...end {
-                let ch = chapters[idx]
-                if !storage.isChapterCached(bookId: book.id, chapterIndex: ch.index) {
-                    if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: ch.url, referer: book.bookUrl),
-                       let text = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source) {
-                        storage.saveChapterCache(bookId: book.id, chapterIndex: ch.index, content: text)
+        activeCacheTask?.cancel()
+        activeCacheTask = Task {
+            var completed = 0
+            let batchSize = 6
+            for chunkStart in stride(from: 0, to: total, by: batchSize) {
+                guard !Task.isCancelled else { break }
+                let chunkEnd = min(total, chunkStart + batchSize)
+                let slice = Array(targetChapters[chunkStart..<chunkEnd])
+                
+                await withTaskGroup(of: Void.self) { group in
+                    for ch in slice {
+                        group.addTask {
+                            guard !Task.isCancelled else { return }
+                            if !StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index) {
+                                if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: ch.url, referer: bookUrl),
+                                   let text = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
+                                   text.count >= 50 {
+                                    StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: text)
+                                }
+                            }
+                        }
                     }
                 }
-                done += 1
-                let currentDone = done
+                completed = chunkEnd
+                let currentDone = completed
+                let pct = Int(Double(currentDone) / Double(max(1, total)) * 100.0)
                 await MainActor.run {
-                    self.cacheProgressText = "已缓存 \(currentDone)/\(total) 章"
+                    self.cacheProgressText = "已缓存 \(currentDone)/\(total) 章 (\(pct)%)"
                 }
             }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
-                self.cacheProgressText = nil
+                self.isCachingChapters = false
+                self.cacheProgressText = "缓存完成 (\(total) 章已离线就绪)"
+            }
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            await MainActor.run {
+                if !self.isCachingChapters {
+                    self.cacheProgressText = nil
+                }
             }
         }
     }
@@ -958,6 +1160,8 @@ public struct ReaderView: View {
         if let ch = currentChapter {
             storage.updateBookProgress(
                 bookId: book.id,
+                bookTitle: book.title,
+                bookAuthor: book.author,
                 chapterIndex: currentChapterIndex,
                 chapterTitle: ch.title,
                 totalChapters: chapters.count,
