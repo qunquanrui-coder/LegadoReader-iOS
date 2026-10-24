@@ -1,4 +1,6 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
 
 public struct ContentView: View {
     public init() {}
@@ -33,9 +35,11 @@ struct SettingsView: View {
     @ObservedObject var storage = StorageManager.shared
     @State private var cacheSizeStr = "计算中..."
     @State private var showClearAlert = false
+    @State private var showFileImporter = false
+    @State private var backupAlertMessage: String? = nil
     
     private var appVersion: String {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "3.2.1"
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "3.3.0"
     }
     
     var body: some View {
@@ -97,6 +101,44 @@ struct SettingsView: View {
                     }
                 }
                 
+                Section("数据备份与恢复 (防丢失)") {
+                    if let backupURL = storage.exportFullBackupFileURL() {
+                        ShareLink(item: backupURL) {
+                            Label("导出完整备份文件 (书架/进度/书源)", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    
+                    Button {
+                        if let json = storage.exportFullBackupJSON() {
+                            UIPasteboard.general.string = json
+                            backupAlertMessage = "已将完整备份（含 \(storage.bookshelf.count) 本藏书、阅读进度与 \(storage.bookSources.count) 个书源）复制到剪贴板！"
+                        }
+                    } label: {
+                        Label("复制备份 JSON 到剪贴板", systemImage: "doc.on.doc")
+                    }
+                    
+                    Button {
+                        guard let str = UIPasteboard.general.string, !str.isEmpty else {
+                            backupAlertMessage = "剪贴板为空，请先复制备份 JSON 内容"
+                            return
+                        }
+                        do {
+                            let res = try storage.restoreFromBackupJSON(str)
+                            backupAlertMessage = "恢复成功！已导入 \(res.booksCount) 本藏书、\(res.sourcesCount) 个书源及全部章节/段落阅读进度。"
+                        } catch {
+                            backupAlertMessage = "备份解析失败：\(error.localizedDescription)"
+                        }
+                    } label: {
+                        Label("从剪贴板恢复备份", systemImage: "arrow.down.doc")
+                    }
+                    
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("从备份文件导入恢复 (.json)", systemImage: "folder.badge.plus")
+                    }
+                }
+                
                 Section("存储与缓存") {
                     HStack {
                         Label("离线章节缓存", systemImage: "internaldrive")
@@ -139,6 +181,36 @@ struct SettingsView: View {
                 Button("取消", role: .cancel) {}
             } message: {
                 Text("书架记录与阅读进度将保留，仅清理已下载的章节文本。")
+            }
+            .alert("备份与恢复提示", isPresented: Binding(
+                get: { backupAlertMessage != nil },
+                set: { if !$0 { backupAlertMessage = nil } }
+            )) {
+                Button("好的", role: .cancel) { backupAlertMessage = nil }
+            } message: {
+                Text(backupAlertMessage ?? "")
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.json, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    if let content = try? String(contentsOf: url, encoding: .utf8) {
+                        do {
+                            let res = try storage.restoreFromBackupJSON(content)
+                            backupAlertMessage = "文件恢复成功！已导入 \(res.booksCount) 本藏书、\(res.sourcesCount) 个书源及全部阅读进度。"
+                        } catch {
+                            backupAlertMessage = "备份文件格式无效：\(error.localizedDescription)"
+                        }
+                    }
+                case .failure(let err):
+                    backupAlertMessage = "读取文件失败：\(err.localizedDescription)"
+                }
             }
         }
     }

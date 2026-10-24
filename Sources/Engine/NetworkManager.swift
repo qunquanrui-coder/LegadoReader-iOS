@@ -52,12 +52,23 @@ public class NetworkManager {
         // Check if GBK encoding is requested in searchUrl
         let isGBK = rawSearchUrl.lowercased().contains("gbk") || rawSearchUrl.lowercased().contains("gb2312")
         let encodedKey = encodeKeyword(keyword, useGBK: isGBK)
+        let cleanBaseUrl = sanitizeUrlString(source.bookSourceUrl)
         
-        let replaced = rawSearchUrl
-            .replacingOccurrences(of: "{{key}}", with: encodedKey)
-            .replacingOccurrences(of: "{key}", with: encodedKey)
-            .replacingOccurrences(of: "{{page}}", with: "1")
-            .replacingOccurrences(of: "{page}", with: "1")
+        let replaced: String
+        if rawSearchUrl.contains("@js:") || rawSearchUrl.contains("<js>") || rawSearchUrl.contains("java.") {
+            replaced = LegadoJSEngine.shared.renderUrlTemplate(
+                rawSearchUrl,
+                baseUrl: cleanBaseUrl,
+                key: keyword,
+                page: 1
+            )
+        } else {
+            replaced = rawSearchUrl
+                .replacingOccurrences(of: "{{key}}", with: encodedKey)
+                .replacingOccurrences(of: "{key}", with: encodedKey)
+                .replacingOccurrences(of: "{{page}}", with: "1")
+                .replacingOccurrences(of: "{page}", with: "1")
+        }
         
         var urlPart = replaced
         var method = "GET"
@@ -77,7 +88,6 @@ public class NetworkManager {
             }
         }
         
-        let cleanBaseUrl = sanitizeUrlString(source.bookSourceUrl)
         let fullUrlStr: String
         if urlPart.lowercased().hasPrefix("http") {
             fullUrlStr = urlPart

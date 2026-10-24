@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 public struct PaginatedParagraph: Identifiable, Equatable {
     public var id: Int { index }
@@ -74,8 +75,10 @@ public struct ReaderView: View {
     /// Cached paragraphs of the current chapter — rebuilt only when content or purify/convert config changes,
     /// instead of re-running regex splitting & Chinese conversion on every SwiftUI render.
     @State private var formattedParagraphs: [String] = []
-    /// Cached screen-sized pages for horizontal / Duo modes — rebuilt only when paragraphs or font config changes.
+    /// Cached screen-sized pages for horizontal / Duo modes — rebuilt only when paragraphs, viewport, or font config changes.
     @State private var paginatedPages: [[PaginatedParagraph]] = []
+    /// Actual measured page viewport size from GeometryReader (single page width & height)
+    @State private var pageViewportSize: CGSize = .zero
     /// Reference holder for progress-save throttling (mutating it never triggers a re-render).
     @State private var progressSaver = ProgressSaveThrottle()
     
@@ -84,36 +87,82 @@ public struct ReaderView: View {
         rebuildLayout()
     }
     
+    private func updateViewportSize(_ newSize: CGSize) {
+        guard newSize.width > 100 && newSize.height > 150 else { return }
+        if abs(newSize.width - pageViewportSize.width) > 2 || abs(newSize.height - pageViewportSize.height) > 2 {
+            pageViewportSize = newSize
+            rebuildLayout()
+            restorePageFromParagraphIfNeeded()
+        }
+    }
+    
     private func rebuildLayout() {
         let paras = ChapterTextFormatter.paragraphs(from: currentContent, config: storage.readerConfig)
         formattedParagraphs = paras
-        paginatedPages = Self.buildPages(paragraphs: paras, config: storage.readerConfig)
+        let chTitle = currentChapter.map { storage.readerConfig.effectiveChineseConversion.convert($0.title) } ?? ""
+        paginatedPages = Self.buildPages(
+            paragraphs: paras,
+            chapterTitle: chTitle,
+            config: storage.readerConfig,
+            viewportSize: pageViewportSize
+        )
     }
     
-    /// Slices paragraphs into screen-sized pages for horizontal page-turning mode
-    private static func buildPages(paragraphs paras: [String], config: ReaderConfig) -> [[PaginatedParagraph]] {
+    /// Slices paragraphs into exact screen-fitted pages using CoreText / NSString bounding-box measurement
+    private static func buildPages(
+        paragraphs paras: [String],
+        chapterTitle: String,
+        config: ReaderConfig,
+        viewportSize: CGSize
+    ) -> [[PaginatedParagraph]] {
         guard !paras.isEmpty else { return [] }
         
-        let fontFactor = max(14.0, Double(config.fontSize))
-        let spacingFactor = max(4.0, Double(config.lineSpacing))
-        let charsPerLine = max(14, Int(340.0 / fontFactor))
-        let linesPerPage = max(12, Int(560.0 / (fontFactor + spacingFactor * 0.85)))
-        let maxLinesBudget = linesPerPage
+        let textWidth = max(180.0, (viewportSize.width > 100 ? viewportSize.width : 390.0) - 44.0)
+        let maxPageHeight = max(260.0, (viewportSize.height > 150 ? viewportSize.height : 680.0) - 32.0)
+        let paraGap = config.lineSpacing + 12.0
+        
+        let bodyFont = UIFont.systemFont(ofSize: config.fontSize, weight: .regular)
+        let paraStyle = NSMutableParagraphStyle()
+        paraStyle.lineSpacing = config.lineSpacing
+        let bodyAttrs: [NSAttributedString.Key: Any] = [
+            .font: bodyFont,
+            .paragraphStyle: paraStyle
+        ]
+        
+        var firstPageHeaderHeight: CGFloat = 0
+        if !chapterTitle.isEmpty {
+            let titleFont = UIFont.systemFont(ofSize: config.fontSize + 4, weight: .bold)
+            let titleRect = (chapterTitle as NSString).boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: titleFont],
+                context: nil
+            )
+            firstPageHeaderHeight = ceil(titleRect.height) + 14.0 + paraGap
+        }
         
         var pages: [[PaginatedParagraph]] = []
         var currentPage: [PaginatedParagraph] = []
-        var currentLinesUsed = 2
+        var usedHeight: CGFloat = firstPageHeaderHeight
         
         for (idx, para) in paras.enumerated() {
-            let estimatedLines = max(1, Int(ceil(Double(para.count) / Double(charsPerLine)))) + 1
+            let rect = (para as NSString).boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: bodyAttrs,
+                context: nil
+            )
+            let paraHeight = ceil(rect.height) + 4.0
+            let needed = currentPage.isEmpty ? paraHeight : (paraGap + paraHeight)
             let item = PaginatedParagraph(index: idx, text: para)
-            if !currentPage.isEmpty && (currentLinesUsed + estimatedLines > maxLinesBudget) {
+            
+            if !currentPage.isEmpty && (usedHeight + needed > maxPageHeight) {
                 pages.append(currentPage)
                 currentPage = [item]
-                currentLinesUsed = estimatedLines
+                usedHeight = paraHeight
             } else {
                 currentPage.append(item)
-                currentLinesUsed += estimatedLines
+                usedHeight += needed
             }
         }
         if !currentPage.isEmpty {
@@ -600,6 +649,12 @@ public struct ReaderView: View {
                         }
                 }
             }
+            .onAppear {
+                updateViewportSize(geo.size)
+            }
+            .onChange(of: geo.size) { newSize in
+                updateViewportSize(newSize)
+            }
         }
     }
     
@@ -775,6 +830,13 @@ public struct ReaderView: View {
                             }
                     }
                 }
+            }
+            .onAppear {
+                updateViewportSize(CGSize(width: halfWidth, height: geo.size.height - 20))
+            }
+            .onChange(of: geo.size) { newSize in
+                let hw = max(140, (newSize.width - 18) / 2.0)
+                updateViewportSize(CGSize(width: hw, height: newSize.height - 20))
             }
         }
     }

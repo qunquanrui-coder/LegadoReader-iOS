@@ -167,13 +167,27 @@ public class LegadoParser {
     }
     
     private func extractSingleRule(from element: Element, rawRule: String, baseUrl: URL) -> String? {
-        // Strip @js: or <js> blocks from rule
-        var cleanRaw = rawRule
-        if let jsRange = cleanRaw.range(of: "@js:", options: .caseInsensitive) {
-            cleanRaw = String(cleanRaw[..<jsRange.lowerBound])
-        }
-        if let jsTagRange = cleanRaw.range(of: "<js>", options: .caseInsensitive) {
-            cleanRaw = String(cleanRaw[..<jsTagRange.lowerBound])
+        let (cleanRaw, jsScripts) = LegadoJSEngine.shared.splitSelectorAndJS(rawRule)
+        
+        // Pure @js: or <js> rule with no preceding DOM selector
+        if cleanRaw.isEmpty && !jsScripts.isEmpty {
+            var currentVal: String? = (try? element.html()) ?? ""
+            for script in jsScripts {
+                currentVal = LegadoJSEngine.shared.evaluate(
+                    script: script,
+                    result: currentVal,
+                    baseUrl: baseUrl.absoluteString
+                )
+            }
+            guard var jsRes = currentVal?.trimmingCharacters(in: .whitespacesAndNewlines), !jsRes.isEmpty else {
+                return nil
+            }
+            if jsRes.hasPrefix("/") && !jsRes.lowercased().hasPrefix("http") {
+                if let resolved = URL(string: jsRes, relativeTo: baseUrl)?.absoluteString {
+                    jsRes = resolved
+                }
+            }
+            return jsRes
         }
         
         let regexParts = cleanRaw.components(separatedBy: "##")
@@ -248,6 +262,17 @@ public class LegadoParser {
         
         if let pattern = regexPattern {
             result = result.replacingOccurrences(of: pattern, with: regexReplacement, options: .regularExpression)
+        }
+        
+        // Pipe extracted selector result through any trailing <js>...</js> or @js: scripts
+        for script in jsScripts {
+            if let jsOut = LegadoJSEngine.shared.evaluate(
+                script: script,
+                result: result,
+                baseUrl: baseUrl.absoluteString
+            ) {
+                result = jsOut
+            }
         }
         
         // Strip Legado trailing options like ,{'webView':true}
@@ -328,7 +353,23 @@ public class LegadoParser {
             return nil
         }
         if tocRule.contains("@js:") || tocRule.contains("<js>") {
-            // Common pattern: baseUrl.replace('/txt','').replace('.htm','/')
+            let (selPart, scripts) = LegadoJSEngine.shared.splitSelectorAndJS(tocRule)
+            var current: String? = baseUrl.absoluteString
+            if !selPart.isEmpty, let doc = try? SwiftSoup.parse(html, baseUrl.absoluteString) {
+                current = extractValue(from: doc, rule: selPart, baseUrl: baseUrl) ?? baseUrl.absoluteString
+            }
+            for script in scripts {
+                if let out = LegadoJSEngine.shared.evaluate(script: script, result: current, baseUrl: baseUrl.absoluteString), !out.isEmpty {
+                    current = out
+                }
+            }
+            if let resolved = current, !resolved.isEmpty {
+                if resolved.lowercased().hasPrefix("http") {
+                    return resolved
+                } else if let abs = URL(string: resolved, relativeTo: baseUrl)?.absoluteString {
+                    return abs
+                }
+            }
             if tocRule.contains("replace('/txt','')") {
                 return baseUrl.absoluteString
                     .replacingOccurrences(of: "/txt", with: "")

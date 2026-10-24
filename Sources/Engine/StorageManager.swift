@@ -382,10 +382,6 @@ public class StorageManager: ObservableObject {
         
         for s in newSources {
             guard !s.bookSourceUrl.isEmpty, !s.bookSourceName.isEmpty else { continue }
-            // Skip pure JS sources that cannot be parsed without Rhino/QuickJS
-            if let su = s.searchUrl, (su.hasPrefix("@js:") || su.hasPrefix("<js>")) {
-                continue
-            }
             if !existingSet.contains(s.bookSourceUrl) {
                 existingSet.insert(s.bookSourceUrl)
                 bookSources.append(s)
@@ -430,5 +426,93 @@ public class StorageManager: ObservableObject {
         if let data = try? JSONEncoder().encode(readerConfig) {
             UserDefaults.standard.set(data, forKey: configKey)
         }
+    }
+    
+    // MARK: - Full Data Backup & Restore (Bookshelf + Progress + Sources + Config)
+    public struct FullBackupPayload: Codable {
+        public var version: String = "3.3.0"
+        public var exportedAt: Date = Date()
+        public var bookshelf: [Book]
+        public var bookSources: [BookSource]
+        public var readerConfig: ReaderConfig
+        public var lastReadBookId: String?
+        public var positionMap: [String: [Int]]
+        public var chapterTitleMap: [String: String]
+    }
+    
+    public func exportFullBackupJSON() -> String? {
+        let posMap = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
+        let titleMap = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
+        let payload = FullBackupPayload(
+            bookshelf: bookshelf,
+            bookSources: bookSources,
+            readerConfig: readerConfig,
+            lastReadBookId: lastReadBookId,
+            positionMap: posMap,
+            chapterTitleMap: titleMap
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(payload) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+    
+    public func exportFullBackupFileURL() -> URL? {
+        guard let json = exportFullBackupJSON() else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmm"
+        let filename = "风读全量备份_\(formatter.string(from: Date())).json"
+        let fileURL = fileManager.temporaryDirectory.appendingPathComponent(filename)
+        try? json.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+    
+    public func restoreFromBackupJSON(_ jsonString: String) throws -> (booksCount: Int, sourcesCount: Int) {
+        guard let data = jsonString.data(using: .utf8) else {
+            throw NSError(domain: "LegadoReader", code: -10, userInfo: [NSLocalizedDescriptionKey: "备份文本编码无效"])
+        }
+        let decoder = JSONDecoder()
+        let payload = try decoder.decode(FullBackupPayload.self, from: data)
+        
+        // 1. Restore reader config
+        self.readerConfig = payload.readerConfig
+        saveConfig()
+        
+        // 2. Merge position maps
+        var posMap = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
+        for (k, v) in payload.positionMap { posMap[k] = v }
+        UserDefaults.standard.set(posMap, forKey: positionMapKey)
+        
+        var titleMap = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
+        for (k, v) in payload.chapterTitleMap { titleMap[k] = v }
+        UserDefaults.standard.set(titleMap, forKey: chapterTitleMapKey)
+        
+        // 3. Merge bookshelf
+        for incoming in payload.bookshelf {
+            if let idx = bookshelf.firstIndex(where: { $0.id == incoming.id || ($0.title == incoming.title && $0.author == incoming.author) }) {
+                if incoming.lastReadTime >= bookshelf[idx].lastReadTime || incoming.currentChapterIndex > bookshelf[idx].currentChapterIndex {
+                    bookshelf[idx] = incoming
+                }
+            } else {
+                bookshelf.append(incoming)
+            }
+        }
+        if let lastId = payload.lastReadBookId {
+            self.lastReadBookId = lastId
+            UserDefaults.standard.set(lastId, forKey: lastReadBookIdKey)
+        }
+        saveBookshelf()
+        
+        // 4. Merge book sources
+        var existingUrls = Set(bookSources.map { $0.bookSourceUrl })
+        for s in payload.bookSources {
+            if !s.bookSourceUrl.isEmpty && !existingUrls.contains(s.bookSourceUrl) {
+                existingUrls.insert(s.bookSourceUrl)
+                bookSources.append(s)
+            }
+        }
+        saveBookSources()
+        
+        return (payload.bookshelf.count, payload.bookSources.count)
     }
 }
