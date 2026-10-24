@@ -44,4 +44,21 @@ final class ChapterContentCacheTests: XCTestCase {
             XCTAssertNil(ChapterContentCache(directory: directory).read(bookId: "book", chapterIndex: 0))
         }
     }
+
+    func testLegacyDownloadsArePreservedOutsideVerifiedCache() throws {
+        let root = try temporaryDirectory()
+        let legacy = root.appendingPathComponent("NovelCache_v3")
+        let oldBook = legacy.appendingPathComponent("book")
+        try FileManager.default.createDirectory(at: oldBook, withIntermediateDirectories: true)
+        let original = "旧离线正文仍需保留，供恢复核对。"
+        try original.write(to: oldBook.appendingPathComponent("0.txt"), atomically: true, encoding: .utf8)
+        let newDirectory = root.appendingPathComponent("verified")
+        let cache = ChapterContentCache(directory: newDirectory)
+        cache.quarantineLegacyCaches(at: [legacy])
+        XCTAssertNil(cache.read(bookId: "book", chapterIndex: 0))
+        let saved = newDirectory.appendingPathComponent("legacy-unverified/NovelCache_v3/book/0.txt")
+        XCTAssertEqual(try String(contentsOf: saved, encoding: .utf8), original)
+        cache.quarantineLegacyCaches(at: [legacy])
+        XCTAssertEqual(try String(contentsOf: saved, encoding: .utf8), original)
+    }
 }

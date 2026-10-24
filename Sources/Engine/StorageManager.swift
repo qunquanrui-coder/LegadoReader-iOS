@@ -50,9 +50,7 @@ public class StorageManager: ObservableObject {
         let legacyDirectories = [docs.appendingPathComponent("NovelCache_v2_1"),
                                  docs.appendingPathComponent("NovelCache"),
                                  support.appendingPathComponent("NovelCache_v3")]
-        for legacy in legacyDirectories {
-            try? fileManager.removeItem(at: legacy)
-        }
+        ChapterContentCache(directory: cacheDirectory).quarantineLegacyCaches(at: legacyDirectories)
     }
     
     /// Total size of all cached chapters in bytes

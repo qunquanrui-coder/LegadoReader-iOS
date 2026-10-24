@@ -49,6 +49,8 @@ public struct ReaderView: View {
     @State private var chapterLoadTask: Task<Void, Never>?
     @State private var chapterLoadID = UUID()
     @State private var prefetchTask: Task<Void, Never>?
+    @State private var tocLoadTask: Task<Void, Never>?
+    @State private var tocLoadID = UUID()
     
     // Intra-Chapter Paragraph Restoration State
     @State private var targetRestoreParagraph: Int? = nil
@@ -1335,6 +1337,13 @@ public struct ReaderView: View {
     }
     
     private func initializeReader() {
+        tocLoadTask?.cancel()
+        chapterLoadTask?.cancel()
+        chapterLoadID = UUID()
+        prefetchTask?.cancel()
+        let loadID = UUID()
+        tocLoadID = loadID
+        let requestedBook = book
         isLoading = true
         errorMessage = nil
         
@@ -1343,10 +1352,12 @@ public struct ReaderView: View {
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         
-        Task {
+        tocLoadTask = Task {
             do {
-                let parsedChapters = try await LegadoParser.shared.fetchAndParseToc(bookUrl: book.bookUrl, source: source)
+                let parsedChapters = try await LegadoParser.shared.fetchAndParseToc(bookUrl: requestedBook.bookUrl, source: source)
+                try Task.checkCancellation()
                 await MainActor.run {
+                    guard self.tocLoadID == loadID, self.book.bookUrl == requestedBook.bookUrl else { return }
                     if parsedChapters.isEmpty {
                         self.errorMessage = "当前书源未能解析出目录，请点击「切换书源」"
                         self.isLoading = false
@@ -1388,8 +1399,11 @@ public struct ReaderView: View {
                         self.loadCurrentChapterContent()
                     }
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run {
+                    guard self.tocLoadID == loadID else { return }
                     self.errorMessage = "目录拉取失败，请点击「切换书源」或重试"
                     self.isLoading = false
                 }

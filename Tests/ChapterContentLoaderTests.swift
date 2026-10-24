@@ -157,4 +157,20 @@ final class ChapterContentLoaderTests: XCTestCase {
         let result = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
         XCTAssertEqual(result.pageCount, 1)
     }
+
+    func testWrongInitialChapterIsRejected() async throws {
+        let pages = FixturePages([first: page("错误章节。", title: "第二章 其他内容")])
+        do {
+            _ = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
+            XCTFail("A wrong chapter response must not be displayed or cached")
+        } catch ChapterLoadingError.differentChapter { }
+    }
+
+    func testDuplicatePageUnderDifferentURLIsRejected() async throws {
+        let pages = FixturePages([first: page("重复的第一页。", next: second), second: page("重复的第一页。")])
+        do {
+            _ = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
+            XCTFail("Repeated pages must not masquerade as a complete chapter")
+        } catch ChapterLoadingError.paginationLoop { }
+    }
 }

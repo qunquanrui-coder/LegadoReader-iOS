@@ -73,7 +73,7 @@ public final class ChapterContentLoader {
             }
             if firstURL == nil { firstURL = finalURL }
             let doc = try SwiftSoup.parse(html, finalURL.absoluteString)
-            if !pages.isEmpty { try validateChapterTitle(doc, expected: chapter.title) }
+            try validateChapterTitle(doc, expected: chapter.title)
             let text = try LegadoParser.shared.parseContent(html: html, baseUrl: finalURL, source: source)
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ChapterLoadingError.missingContent

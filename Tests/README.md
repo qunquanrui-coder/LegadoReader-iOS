@@ -11,10 +11,11 @@ Coverage:
 - Keep the next chapter separate, validate chapter numbers, accept Chinese/Arabic equivalents.
 - Reject incomplete pages, missing continuation links, pagination loops, duplicate pages and page limits.
 - Propagate cancellation without producing complete cacheable content.
-- Accept valid short chapters and throw on missing正文 instead of caching an error message.
+- Accept valid short chapters and throw on missing content instead of caching an error message.
 - Reject legacy plain-text caches, incomplete records, unsupported versions and source/URL mismatches.
 
-Upgrade behavior: legacy downloaded chapter text is invalidated and must be downloaded again.
+Upgrade behavior: legacy downloaded chapter text is quarantined as unverified, not deleted, and must
+be downloaded again before use as a verified chapter. Explicitly clearing all caches also clears the archive.
 Bookshelf, sources, preferences and reading progress keep their existing storage keys.
 
 Device acceptance still required for the reported books: compare the exact same source's complete

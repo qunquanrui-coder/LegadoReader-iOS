@@ -13,6 +13,24 @@ public final class ChapterContentCache {
     private let directory: URL
     public init(directory: URL) { self.directory = directory }
 
+    /// Preserve old downloads for recovery, while excluding them from verified cache reads.
+    func quarantineLegacyCaches(at directories: [URL]) {
+        let archive = directory.appendingPathComponent("legacy-unverified", isDirectory: true)
+        let manager = FileManager.default
+        for legacy in directories {
+            guard legacy.standardizedFileURL != directory.standardizedFileURL,
+                  manager.fileExists(atPath: legacy.path) else { continue }
+            let destination = archive.appendingPathComponent(legacy.lastPathComponent, isDirectory: true)
+            guard !manager.fileExists(atPath: destination.path) else { continue }
+            do {
+                try manager.createDirectory(at: archive, withIntermediateDirectories: true)
+                try manager.moveItem(at: legacy, to: destination)
+            } catch {
+                // Leave the original untouched when it cannot be moved.
+            }
+        }
+    }
+
     public func read(bookId: String, chapterIndex: Int, chapterURL: String? = nil, sourceURL: String? = nil) -> String? {
         let url = fileURL(bookId: bookId, chapterIndex: chapterIndex)
         guard let data = try? Data(contentsOf: url),
