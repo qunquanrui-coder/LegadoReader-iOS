@@ -311,6 +311,7 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showChapterList) {
             ChapterListView(
+                bookId: book.id,
                 chapters: chapters,
                 currentIndex: currentChapterIndex,
                 onSelectChapter: { newIndex in
@@ -679,6 +680,17 @@ public struct ReaderView: View {
                             }
                             .onAppear {
                                 tocProxy.scrollTo("duo_toc_\(currentChapterIndex)", anchor: .center)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    tocProxy.scrollTo("duo_toc_\(currentChapterIndex)", anchor: .center)
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                                    tocProxy.scrollTo("duo_toc_\(currentChapterIndex)", anchor: .center)
+                                }
+                            }
+                            .onChange(of: currentChapterIndex) { newIdx in
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    tocProxy.scrollTo("duo_toc_\(newIdx)", anchor: .center)
+                                }
                             }
                         }
                     }

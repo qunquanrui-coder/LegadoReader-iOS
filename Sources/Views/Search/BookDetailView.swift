@@ -321,6 +321,7 @@ public struct BookDetailView: View {
         }
         .sheet(isPresented: $showAllChapters) {
             ChapterListView(
+                bookId: book.id,
                 chapters: chapters,
                 currentIndex: book.currentChapterIndex,
                 onSelectChapter: { idx in
