@@ -109,10 +109,11 @@ public class StorageManager: ObservableObject {
         try? fileManager.removeItem(at: bookDir)
     }
     
-    public func updateBookProgress(bookId: String, chapterIndex: Int, chapterTitle: String, totalChapters: Int) {
+    public func updateBookProgress(bookId: String, chapterIndex: Int, chapterTitle: String, totalChapters: Int, paragraphIndex: Int = 0) {
         if let index = bookshelf.firstIndex(where: { $0.id == bookId }) {
             bookshelf[index].currentChapterIndex = chapterIndex
             bookshelf[index].currentChapterTitle = chapterTitle
+            bookshelf[index].currentParagraphIndex = paragraphIndex
             bookshelf[index].totalChapters = max(bookshelf[index].totalChapters, totalChapters)
             bookshelf[index].lastReadTime = Date()
             saveBookshelf()

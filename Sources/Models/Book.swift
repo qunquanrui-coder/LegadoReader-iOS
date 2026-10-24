@@ -12,6 +12,7 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
     public var bookUrl: String
     public var currentChapterIndex: Int
     public var currentChapterTitle: String?
+    public var currentParagraphIndex: Int?
     public var lastReadTime: Date
     public var totalChapters: Int
     
@@ -26,6 +27,7 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
         bookUrl: String,
         currentChapterIndex: Int = 0,
         currentChapterTitle: String? = nil,
+        currentParagraphIndex: Int? = 0,
         lastReadTime: Date = Date(),
         totalChapters: Int = 0
     ) {
@@ -42,6 +44,7 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
         self.bookUrl = bookUrl
         self.currentChapterIndex = currentChapterIndex
         self.currentChapterTitle = currentChapterTitle
+        self.currentParagraphIndex = currentParagraphIndex
         self.lastReadTime = lastReadTime
         self.totalChapters = totalChapters
     }

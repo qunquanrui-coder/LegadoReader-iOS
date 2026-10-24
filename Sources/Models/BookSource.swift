@@ -34,6 +34,7 @@ public struct BookSource: Identifiable, Codable, Equatable, Hashable {
     public var bookSourceType: Int?
     public var bookSourceComment: String?
     public var enabled: Bool?
+    public var respondTime: Int?
     public var searchUrl: String?
     public var ruleSearch: RuleSearch?
     public var ruleBookInfo: RuleBookInfo?

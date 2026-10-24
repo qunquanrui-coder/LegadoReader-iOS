@@ -1,24 +1,36 @@
 import SwiftUI
 
+public struct PaginatedParagraph: Identifiable, Equatable {
+    public var id: Int { index }
+    public let index: Int
+    public let text: String
+}
+
 public struct ReaderView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var storage = StorageManager.shared
+    @ObservedObject var speech = SpeechSynthesizerManager.shared
     
     @State var book: Book
     @State private var chapters: [Chapter] = []
     @State private var currentChapterIndex: Int
+    @State private var currentParagraphIndex: Int
+    @State private var currentPageIndex: Int = 0
     @State private var currentContent: String = ""
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showHUD = false
+    @State private var showTTSBar = false
     @State private var showChapterList = false
     @State private var showSettings = false
     @State private var showChangeSource = false
     @State private var cacheProgressText: String? = nil
+    @State private var shouldRestoreParagraphOffset = true
     
     public init(book: Book) {
         _book = State(initialValue: book)
         _currentChapterIndex = State(initialValue: book.currentChapterIndex)
+        _currentParagraphIndex = State(initialValue: book.currentParagraphIndex ?? 0)
     }
     
     private var currentChapter: Chapter? {
@@ -26,26 +38,31 @@ public struct ReaderView: View {
         return chapters[currentChapterIndex]
     }
     
-    /// Splits chapter content into clean, distinct paragraphs with guaranteed indentation and inter-paragraph spacing
+    /// Splits chapter content into clean, distinct paragraphs with custom purification & Chinese conversion applied
     private var formattedParagraphs: [String] {
         guard !currentContent.isEmpty else { return [] }
-        // Split on newlines OR two full-width spaces (in case of legacy cached text)
         let normalized = currentContent
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\u{3000}\u{3000}", with: "\n")
             .replacingOccurrences(of: "\u{00A0}\u{00A0}", with: "\n")
         
+        let customRules = storage.readerConfig.effectivePurifyRules
+        let converter = storage.readerConfig.effectiveChineseConversion
+        
         var rawList = normalized
             .components(separatedBy: .newlines)
-            .map {
-                $0.replacingOccurrences(of: "\u{3000}", with: " ")
-                  .replacingOccurrences(of: "\u{00A0}", with: " ")
-                  .trimmingCharacters(in: .whitespacesAndNewlines)
+            .map { line -> String in
+                var cleaned = line
+                    .replacingOccurrences(of: "\u{3000}", with: " ")
+                    .replacingOccurrences(of: "\u{00A0}", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                for rule in customRules where !rule.isEmpty {
+                    cleaned = cleaned.replacingOccurrences(of: rule, with: "")
+                }
+                return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             .filter { !$0.isEmpty }
         
-        // If a source stripped all <br>/<p> tags and returned a giant wall of text (e.g. <= 3 paragraphs for a whole chapter),
-        // intelligently split after dialogue closing quotes (。” / ！” / ？”) or every 2-3 sentences
         if rawList.count <= 3 && currentContent.count > 250 {
             var smartSplit: [String] = []
             for block in rawList {
@@ -58,7 +75,6 @@ public struct ReaderView: View {
                     let s = sub.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !s.isEmpty else { continue }
                     if s.count > 160 {
-                        // Further split long narrative blocks every ~2 sentences
                         let sentences = s.replacingOccurrences(of: "([。！？])(?=[^”」』】])", with: "$1\n", options: .regularExpression)
                             .components(separatedBy: .newlines)
                             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -82,7 +98,41 @@ public struct ReaderView: View {
             }
         }
         
-        return rawList.map { "　　" + $0 }
+        return rawList.map { "　　" + converter.convert($0) }
+    }
+    
+    /// Slices `formattedParagraphs` into screen-sized pages for horizontal page-turning mode
+    private var paginatedPages: [[PaginatedParagraph]] {
+        let paras = formattedParagraphs
+        guard !paras.isEmpty else { return [] }
+        
+        // Approximate character budget per page based on font size & line spacing
+        let fontFactor = max(14.0, Double(storage.readerConfig.fontSize))
+        let spacingFactor = max(4.0, Double(storage.readerConfig.lineSpacing))
+        let charsPerLine = max(14, Int(340.0 / fontFactor))
+        let linesPerPage = max(12, Int(560.0 / (fontFactor + spacingFactor * 0.85)))
+        let maxLinesBudget = linesPerPage
+        
+        var pages: [[PaginatedParagraph]] = []
+        var currentPage: [PaginatedParagraph] = []
+        var currentLinesUsed = 2 // Reserve space for chapter title on first page
+        
+        for (idx, para) in paras.enumerated() {
+            let estimatedLines = max(1, Int(ceil(Double(para.count) / Double(charsPerLine)))) + 1
+            let item = PaginatedParagraph(index: idx, text: para)
+            if !currentPage.isEmpty && (currentLinesUsed + estimatedLines > maxLinesBudget) {
+                pages.append(currentPage)
+                currentPage = [item]
+                currentLinesUsed = estimatedLines
+            } else {
+                currentPage.append(item)
+                currentLinesUsed += estimatedLines
+            }
+        }
+        if !currentPage.isEmpty {
+            pages.append(currentPage)
+        }
+        return pages
     }
     
     public var body: some View {
@@ -94,12 +144,19 @@ public struct ReaderView: View {
             VStack(spacing: 0) {
                 // Subtle Top Running Header
                 HStack {
-                    Text(currentChapter?.title ?? book.title)
+                    Text(storage.readerConfig.effectiveChineseConversion.convert(currentChapter?.title ?? book.title))
                         .font(.system(size: 11, design: storage.readerConfig.fontDesign.swiftUIDesign))
                         .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
                         .lineLimit(1)
                     Spacer()
-                    if let cacheMsg = cacheProgressText {
+                    if speech.isSpeaking {
+                        HStack(spacing: 4) {
+                            Image(systemName: "waveform")
+                            Text(speech.isPaused ? "听书已暂停" : "正在朗读")
+                        }
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.indigo)
+                    } else if let cacheMsg = cacheProgressText {
                         Text(cacheMsg)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.indigo)
@@ -112,142 +169,49 @@ public struct ReaderView: View {
                 .padding(.horizontal, 22)
                 .padding(.vertical, 6)
                 
-                // Main Reading ScrollView
-                ScrollViewReader { scrollProxy in
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 18) {
-                            Color.clear
-                                .frame(height: 1)
-                                .id("chapterTop")
-                            
-                            if let chapter = currentChapter {
-                                Text(chapter.title)
-                                    .font(.system(
-                                        size: storage.readerConfig.fontSize + 5,
-                                        weight: .bold,
-                                        design: storage.readerConfig.fontDesign.swiftUIDesign
-                                    ))
-                                    .foregroundColor(storage.readerConfig.theme.textColor)
-                                    .padding(.top, 8)
-                                    .padding(.bottom, 6)
-                            }
-                            
-                            if isLoading {
-                                VStack(spacing: 14) {
-                                    ProgressView()
-                                    Text("正在加载章节正文...")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.6))
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 120)
-                            } else if let error = errorMessage {
-                                VStack(spacing: 16) {
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.orange)
-                                    Text(error)
-                                        .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.8))
-                                        .font(.subheadline)
-                                        .multilineTextAlignment(.center)
-                                    
-                                    HStack(spacing: 14) {
-                                        Button("重试加载") {
-                                            loadCurrentChapterContent(forceRefresh: true)
-                                        }
-                                        .buttonStyle(.bordered)
-                                        
-                                        Button("切换书源") {
-                                            showChangeSource = true
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                        .tint(.indigo)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 90)
-                            } else {
-                                VStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 14) {
-                                    ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { _, paragraph in
-                                        Text(paragraph)
-                                            .font(.system(
-                                                size: storage.readerConfig.fontSize,
-                                                design: storage.readerConfig.fontDesign.swiftUIDesign
-                                            ))
-                                            .lineSpacing(storage.readerConfig.lineSpacing)
-                                            .foregroundColor(storage.readerConfig.theme.textColor)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                                
-                                // Chapter Bottom Navigation Bar
-                                HStack(spacing: 16) {
-                                    Button {
-                                        if currentChapterIndex > 0 {
-                                            switchChapter(to: currentChapterIndex - 1, proxy: scrollProxy)
-                                        }
-                                    } label: {
-                                        Text("上一章")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 12)
-                                            .background(storage.readerConfig.theme.textColor.opacity(0.08))
-                                            .foregroundColor(storage.readerConfig.theme.textColor)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    }
-                                    .disabled(currentChapterIndex <= 0)
-                                    
-                                    Button {
-                                        if currentChapterIndex < chapters.count - 1 {
-                                            switchChapter(to: currentChapterIndex + 1, proxy: scrollProxy)
-                                        }
-                                    } label: {
-                                        Text("下一章")
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 12)
-                                            .background(Color.indigo)
-                                            .foregroundColor(.white)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    }
-                                    .disabled(currentChapterIndex >= chapters.count - 1)
-                                }
-                                .padding(.top, 36)
-                                .padding(.bottom, 50)
-                            }
-                        }
-                        .padding(.horizontal, 22)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showHUD.toggle()
-                        }
-                    }
-                    .onChange(of: currentChapterIndex) { _ in
-                        withAnimation(.none) {
-                            scrollProxy.scrollTo("chapterTop", anchor: .top)
-                        }
-                    }
+                // Main Reading Area: Vertical Scroll OR Horizontal Slide Pages
+                if isLoading {
+                    loadingStateView
+                } else if let error = errorMessage {
+                    errorStateView(error)
+                } else if storage.readerConfig.effectivePageTurnMode == .horizontalSlide {
+                    horizontalPageReaderView
+                } else {
+                    verticalScrollReaderView
                 }
                 
                 // Subtle Bottom Footer
                 HStack {
-                    Text(book.title)
+                    Text(storage.readerConfig.effectiveChineseConversion.convert(book.title))
                         .font(.system(size: 10))
                         .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.4))
                         .lineLimit(1)
                     Spacer()
                     if !chapters.isEmpty {
                         let pct = min(100.0, Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0)
-                        Text(String(format: "%d/%d 章 (%.1f%%)", currentChapterIndex + 1, chapters.count, pct))
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
+                        if storage.readerConfig.effectivePageTurnMode == .horizontalSlide && !paginatedPages.isEmpty {
+                            Text(String(format: "第 %d/%d 页 · %d/%d 章 (%.1f%%)", min(currentPageIndex + 1, paginatedPages.count), paginatedPages.count, currentChapterIndex + 1, chapters.count, pct))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
+                        } else {
+                            Text(String(format: "%d/%d 章 (%.1f%%)", currentChapterIndex + 1, chapters.count, pct))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
+                        }
                     }
                 }
                 .padding(.horizontal, 22)
                 .padding(.vertical, 6)
+            }
+            
+            // Floating TTS Audio Player Bar
+            if showTTSBar || speech.isSpeaking {
+                VStack {
+                    Spacer()
+                    ttsControlOverlay
+                        .padding(.bottom, showHUD ? 130 : 28)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
             // Floating HUD Overlays
@@ -262,7 +226,11 @@ public struct ReaderView: View {
         }
         .statusBar(hidden: !showHUD)
         .onAppear {
+            setupSpeechCallbacks()
             initializeReader()
+        }
+        .onDisappear {
+            saveProgress()
         }
         .sheet(isPresented: $showChapterList) {
             ChapterListView(
@@ -284,10 +252,354 @@ public struct ReaderView: View {
         }
     }
     
+    // MARK: - Loading & Error Views
+    private var loadingStateView: some View {
+        VStack(spacing: 14) {
+            Spacer()
+            ProgressView()
+            Text("正在加载章节正文...")
+                .font(.system(size: 13))
+                .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.6))
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    private func errorStateView(_ error: String) -> some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.largeTitle)
+                .foregroundColor(.orange)
+            Text(error)
+                .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.8))
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+            
+            HStack(spacing: 14) {
+                Button("重试加载") {
+                    loadCurrentChapterContent(forceRefresh: true)
+                }
+                .buttonStyle(.bordered)
+                
+                Button("切换书源") {
+                    showChangeSource = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+    
+    // MARK: - 1. Vertical Scroll Reader View (with Intra-Chapter Paragraph Memory)
+    private var verticalScrollReaderView: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Color.clear
+                        .frame(height: 1)
+                        .id("chapterTop")
+                    
+                    if let chapter = currentChapter {
+                        Text(storage.readerConfig.effectiveChineseConversion.convert(chapter.title))
+                            .font(.system(
+                                size: storage.readerConfig.fontSize + 5,
+                                weight: .bold,
+                                design: storage.readerConfig.fontDesign.swiftUIDesign
+                            ))
+                            .foregroundColor(storage.readerConfig.theme.textColor)
+                            .padding(.top, 8)
+                            .padding(.bottom, 6)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 14) {
+                        ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { idx, paragraph in
+                            let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == idx
+                            Text(paragraph)
+                                .font(.system(
+                                    size: storage.readerConfig.fontSize,
+                                    design: storage.readerConfig.fontDesign.swiftUIDesign
+                                ))
+                                .lineSpacing(storage.readerConfig.lineSpacing)
+                                .foregroundColor(isSpoken ? .indigo : storage.readerConfig.theme.textColor)
+                                .padding(.vertical, isSpoken ? 4 : 0)
+                                .padding(.horizontal, isSpoken ? 6 : 0)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(isSpoken ? Color.indigo.opacity(0.10) : Color.clear)
+                                )
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("para_\(idx)")
+                                .onAppear {
+                                    if !shouldRestoreParagraphOffset {
+                                        currentParagraphIndex = idx
+                                    }
+                                }
+                        }
+                    }
+                    
+                    // Chapter Bottom Navigation Bar
+                    HStack(spacing: 16) {
+                        Button {
+                            if currentChapterIndex > 0 {
+                                switchChapter(to: currentChapterIndex - 1, proxy: scrollProxy)
+                            }
+                        } label: {
+                            Text("上一章")
+                                .font(.system(size: 14, weight: .medium))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(storage.readerConfig.theme.textColor.opacity(0.08))
+                                .foregroundColor(storage.readerConfig.theme.textColor)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(currentChapterIndex <= 0)
+                        
+                        Button {
+                            if currentChapterIndex < chapters.count - 1 {
+                                switchChapter(to: currentChapterIndex + 1, proxy: scrollProxy)
+                            }
+                        } label: {
+                            Text("下一章")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.indigo)
+                                .foregroundColor(.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(currentChapterIndex >= chapters.count - 1)
+                    }
+                    .padding(.top, 36)
+                    .padding(.bottom, 50)
+                }
+                .padding(.horizontal, 22)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showHUD.toggle()
+                }
+            }
+            .onAppear {
+                if shouldRestoreParagraphOffset && currentParagraphIndex > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        scrollProxy.scrollTo("para_\(currentParagraphIndex)", anchor: .top)
+                        shouldRestoreParagraphOffset = false
+                    }
+                } else {
+                    shouldRestoreParagraphOffset = false
+                }
+            }
+            .onChange(of: speech.currentParagraphIndex) { newIdx in
+                if speech.isSpeaking {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        scrollProxy.scrollTo("para_\(newIdx)", anchor: .center)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - 2. Horizontal Slide Page-Turn Reader View
+    private var horizontalPageReaderView: some View {
+        GeometryReader { geo in
+            let pages = paginatedPages
+            ZStack {
+                TabView(selection: $currentPageIndex) {
+                    ForEach(Array(pages.enumerated()), id: \.offset) { pageIdx, pageItems in
+                        ScrollView(showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 12) {
+                                if pageIdx == 0, let chapter = currentChapter {
+                                    Text(storage.readerConfig.effectiveChineseConversion.convert(chapter.title))
+                                        .font(.system(
+                                            size: storage.readerConfig.fontSize + 4,
+                                            weight: .bold,
+                                            design: storage.readerConfig.fontDesign.swiftUIDesign
+                                        ))
+                                        .foregroundColor(storage.readerConfig.theme.textColor)
+                                        .padding(.top, 6)
+                                        .padding(.bottom, 4)
+                                }
+                                
+                                ForEach(pageItems) { item in
+                                    let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == item.index
+                                    Text(item.text)
+                                        .font(.system(
+                                            size: storage.readerConfig.fontSize,
+                                            design: storage.readerConfig.fontDesign.swiftUIDesign
+                                        ))
+                                        .lineSpacing(storage.readerConfig.lineSpacing)
+                                        .foregroundColor(isSpoken ? .indigo : storage.readerConfig.theme.textColor)
+                                        .background(isSpoken ? Color.indigo.opacity(0.10) : Color.clear)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 8)
+                        }
+                        .tag(pageIdx)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .onChange(of: currentPageIndex) { newPage in
+                    if newPage >= 0 && newPage < pages.count, let firstPara = pages[newPage].first {
+                        currentParagraphIndex = firstPara.index
+                        saveProgress()
+                    }
+                }
+                
+                // Left / Center / Right Tap Zones for Natural One-Handed Page Turning
+                HStack(spacing: 0) {
+                    // Left 28%: Previous Page / Chapter
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: geo.size.width * 0.28)
+                        .onTapGesture {
+                            if showHUD {
+                                withAnimation { showHUD = false }
+                            } else if currentPageIndex > 0 {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    currentPageIndex -= 1
+                                }
+                            } else if currentChapterIndex > 0 {
+                                switchChapter(to: currentChapterIndex - 1, proxy: nil)
+                            }
+                        }
+                    
+                    // Center 44%: Toggle HUD
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: geo.size.width * 0.44)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showHUD.toggle()
+                            }
+                        }
+                    
+                    // Right 28%: Next Page / Chapter
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: geo.size.width * 0.28)
+                        .onTapGesture {
+                            if showHUD {
+                                withAnimation { showHUD = false }
+                            } else if currentPageIndex < pages.count - 1 {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    currentPageIndex += 1
+                                }
+                            } else if currentChapterIndex < chapters.count - 1 {
+                                switchChapter(to: currentChapterIndex + 1, proxy: nil)
+                            }
+                        }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Floating TTS Control Bar
+    private var ttsControlOverlay: some View {
+        VStack(spacing: 12) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "headphones")
+                        .foregroundColor(.indigo)
+                    Text("AI 语音听书 · 第 \(min(speech.currentParagraphIndex + 1, max(1, formattedParagraphs.count)))/\(max(1, formattedParagraphs.count)) 段")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                Spacer()
+                if let mins = speech.sleepTimerMinutes {
+                    Text("定时 \(mins)m")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.14))
+                        .clipShape(Capsule())
+                }
+                Button {
+                    speech.stop()
+                    showTTSBar = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            HStack(spacing: 18) {
+                Button {
+                    speech.skipPrevious()
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                        .font(.system(size: 16))
+                }
+                
+                Button {
+                    speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
+                } label: {
+                    Image(systemName: (speech.isSpeaking && !speech.isPaused) ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.indigo)
+                }
+                
+                Button {
+                    speech.skipNext()
+                } label: {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: 16))
+                }
+                
+                Spacer()
+                
+                // Speed Multiplier Selector
+                Menu {
+                    ForEach([Float(0.8), Float(1.0), Float(1.25), Float(1.5)], id: \.self) { rate in
+                        Button(String(format: "%.2gx 语速", rate)) {
+                            speech.setRate(rate)
+                        }
+                    }
+                } label: {
+                    Text(String(format: "%.2gx", speech.speechRateMultiplier))
+                        .font(.system(size: 12, weight: .bold))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.indigo.opacity(0.14))
+                        .foregroundColor(.indigo)
+                        .clipShape(Capsule())
+                }
+                
+                // Sleep Timer Selector
+                Menu {
+                    Button("关闭定时") { speech.setSleepTimer(minutes: nil) }
+                    Button("15 分钟后停止") { speech.setSleepTimer(minutes: 15) }
+                    Button("30 分钟后停止") { speech.setSleepTimer(minutes: 30) }
+                    Button("60 分钟后停止") { speech.setSleepTimer(minutes: 60) }
+                } label: {
+                    Image(systemName: "timer")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(7)
+                        .background(Color(.tertiarySystemGroupedBackground))
+                        .clipShape(Circle())
+                }
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
+        .padding(.horizontal, 16)
+    }
+    
     // MARK: - Top HUD Bar
     private var topBar: some View {
         HStack(spacing: 14) {
             Button {
+                saveProgress()
                 dismiss()
             } label: {
                 Image(systemName: "chevron.left")
@@ -309,7 +621,6 @@ public struct ReaderView: View {
             
             Spacer()
             
-            // Batch Cache Next 30 Chapters
             Button {
                 batchCacheChapters(count: 30)
             } label: {
@@ -325,7 +636,6 @@ public struct ReaderView: View {
                 .clipShape(Capsule())
             }
             
-            // Change Source
             Button {
                 showChangeSource = true
             } label: {
@@ -357,7 +667,6 @@ public struct ReaderView: View {
     // MARK: - Bottom HUD Bar
     private var bottomBar: some View {
         VStack(spacing: 14) {
-            // Chapter Progress Control
             HStack(spacing: 14) {
                 Button {
                     if currentChapterIndex > 0 {
@@ -402,7 +711,6 @@ public struct ReaderView: View {
             
             Divider()
             
-            // Action Tab Icons
             HStack {
                 Spacer()
                 Button {
@@ -412,6 +720,21 @@ public struct ReaderView: View {
                         Image(systemName: "list.bullet.indent")
                             .font(.system(size: 18))
                         Text("目录").font(.system(size: 11, weight: .medium))
+                    }
+                }
+                Spacer()
+                Button {
+                    showHUD = false
+                    showTTSBar = true
+                    if !speech.isSpeaking {
+                        speech.startReading(paragraphs: formattedParagraphs, fromIndex: currentParagraphIndex)
+                    }
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: speech.isSpeaking ? "waveform.circle.fill" : "headphones")
+                            .font(.system(size: 18))
+                            .foregroundColor(speech.isSpeaking ? .indigo : .primary)
+                        Text("听书").font(.system(size: 11, weight: .medium))
                     }
                 }
                 Spacer()
@@ -462,6 +785,24 @@ public struct ReaderView: View {
     }
     
     // MARK: - Logic
+    private func setupSpeechCallbacks() {
+        speech.onParagraphChanged = { idx in
+            self.currentParagraphIndex = idx
+            // Sync horizontal page if in horizontal mode
+            let pages = self.paginatedPages
+            if let pageIdx = pages.firstIndex(where: { $0.contains(where: { $0.index == idx }) }) {
+                self.currentPageIndex = pageIdx
+            }
+        }
+        speech.onChapterFinished = {
+            if self.currentChapterIndex + 1 < self.chapters.count {
+                self.switchChapter(to: self.currentChapterIndex + 1, proxy: nil, autoContinueTTS: true)
+            } else {
+                self.speech.stop()
+            }
+        }
+    }
+    
     private func initializeReader() {
         isLoading = true
         errorMessage = nil
@@ -493,24 +834,31 @@ public struct ReaderView: View {
         }
     }
     
-    private func switchChapter(to newIndex: Int, proxy: ScrollViewProxy?) {
+    private func switchChapter(to newIndex: Int, proxy: ScrollViewProxy?, autoContinueTTS: Bool = false) {
         guard newIndex >= 0 && newIndex < chapters.count else { return }
         currentChapterIndex = newIndex
+        currentParagraphIndex = 0
+        currentPageIndex = 0
+        shouldRestoreParagraphOffset = false
         if let proxy = proxy {
             proxy.scrollTo("chapterTop", anchor: .top)
         }
-        loadCurrentChapterContent()
+        loadCurrentChapterContent(autoContinueTTS: autoContinueTTS)
     }
     
-    private func loadCurrentChapterContent(forceRefresh: Bool = false) {
+    private func loadCurrentChapterContent(forceRefresh: Bool = false, autoContinueTTS: Bool = false) {
         guard let chapter = currentChapter else { return }
         
         if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index) {
             self.currentContent = cached
             self.isLoading = false
             self.errorMessage = nil
+            self.restorePageFromParagraphIfNeeded()
             self.saveProgress()
             self.prefetchNextChapter()
+            if autoContinueTTS {
+                self.speech.startReading(paragraphs: self.formattedParagraphs, fromIndex: 0)
+            }
             return
         }
         
@@ -529,8 +877,12 @@ public struct ReaderView: View {
                     self.currentContent = text
                     self.isLoading = false
                     self.storage.saveChapterCache(bookId: self.book.id, chapterIndex: chapter.index, content: text)
+                    self.restorePageFromParagraphIfNeeded()
                     self.saveProgress()
                     self.prefetchNextChapter()
+                    if autoContinueTTS {
+                        self.speech.startReading(paragraphs: self.formattedParagraphs, fromIndex: 0)
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -538,6 +890,14 @@ public struct ReaderView: View {
                     self.isLoading = false
                 }
             }
+        }
+    }
+    
+    private func restorePageFromParagraphIfNeeded() {
+        guard currentParagraphIndex > 0 else { return }
+        let pages = paginatedPages
+        if let targetPage = pages.firstIndex(where: { $0.contains(where: { $0.index >= currentParagraphIndex }) }) {
+            currentPageIndex = targetPage
         }
     }
     
@@ -600,7 +960,8 @@ public struct ReaderView: View {
                 bookId: book.id,
                 chapterIndex: currentChapterIndex,
                 chapterTitle: ch.title,
-                totalChapters: chapters.count
+                totalChapters: chapters.count,
+                paragraphIndex: currentParagraphIndex
             )
         }
     }
