@@ -55,9 +55,11 @@ struct SettingsView: View {
                         }
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("风读小说 · iPhone Duo 专享版")
+                            Text(ReaderConfig.isDuoEditionBuild ? "风读小说 · iPhone Duo 专享版" : "风读小说 · 纯净阅读版")
                                 .font(.system(size: 18, weight: .bold, design: .serif))
-                            Text("v3.1.0 · 支持 5.4\" 外屏 & 7.6\" 折叠内屏双页对开")
+                            Text(ReaderConfig.isDuoEditionBuild
+                                 ? "v3.2.0 · 支持 5.4\" 外屏 & 7.6\" 折叠内屏双页对开 · 锁屏听书"
+                                 : "v3.2.0 · 真人情感语音锁屏听书 · 全本离线缓存")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -140,7 +142,7 @@ struct SettingsView: View {
     private func calculateCacheSize() {
         let fileManager = FileManager.default
         let urls = fileManager.urls(for: .documentDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("NovelCache")
+        let dir = urls[0].appendingPathComponent("NovelCache_v2_1")
         
         var totalSize: Int64 = 0
         if let enumerator = fileManager.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) {
@@ -159,7 +161,7 @@ struct SettingsView: View {
     private func clearCache() {
         let fileManager = FileManager.default
         let urls = fileManager.urls(for: .documentDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("NovelCache")
+        let dir = urls[0].appendingPathComponent("NovelCache_v2_1")
         try? fileManager.removeItem(at: dir)
         calculateCacheSize()
     }

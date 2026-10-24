@@ -23,6 +23,16 @@ public struct BookshelfView: View {
     
     public init() {}
     
+    private func openBook(_ book: Book) {
+        let fresh = storage.bookshelf.first(where: {
+            $0.id == book.id || ($0.title == book.title && $0.author == book.author)
+        }) ?? book
+        storage.markBookAsRecentlyRead(fresh)
+        selectedBook = storage.bookshelf.first(where: {
+            $0.id == fresh.id || ($0.title == fresh.title && $0.author == fresh.author)
+        }) ?? fresh
+    }
+    
     public var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
@@ -30,8 +40,8 @@ public struct BookshelfView: View {
                     emptyShelfView
                 } else {
                     VStack(alignment: .leading, spacing: 24) {
-                        // Top Hero "Continue Reading" Card
-                        if let recentBook = storage.bookshelf.first {
+                        // Top Hero "Continue Reading" Card — always binds to the most recently read book
+                        if let recentBook = storage.mostRecentBook {
                             continueReadingCard(book: recentBook)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 8)
@@ -72,7 +82,7 @@ public struct BookshelfView: View {
                                 ForEach(storage.bookshelf) { book in
                                     BookshelfGridItem(book: book)
                                         .onTapGesture {
-                                            selectedBook = book
+                                            openBook(book)
                                         }
                                         .contextMenu {
                                             bookContextMenu(for: book)
@@ -86,7 +96,7 @@ public struct BookshelfView: View {
                                 ForEach(storage.bookshelf) { book in
                                     BookshelfListItem(book: book)
                                         .onTapGesture {
-                                            selectedBook = book
+                                            openBook(book)
                                         }
                                         .contextMenu {
                                             bookContextMenu(for: book)
@@ -131,7 +141,7 @@ public struct BookshelfView: View {
     // MARK: - Hero Continue Reading Banner
     private func continueReadingCard(book: Book) -> some View {
         Button {
-            selectedBook = book
+            openBook(book)
         } label: {
             HStack(spacing: 16) {
                 BookCoverView(
@@ -172,14 +182,16 @@ public struct BookshelfView: View {
                     Spacer(minLength: 4)
                     
                     HStack {
+                        let savedPos = storage.getSavedReadingPosition(for: book)
+                        let chapIdx = max(book.currentChapterIndex, savedPos.chapterIndex)
+                        let paraNum = (savedPos.chapterIndex == chapIdx ? savedPos.paragraphIndex : (book.currentParagraphIndex ?? 0)) + 1
                         if book.totalChapters > 0 {
-                            let pct = min(100, Int((Double(book.currentChapterIndex + 1) / Double(book.totalChapters)) * 100))
-                            let paraNum = (book.currentParagraphIndex ?? 0) + 1
-                            Text("已读 \(pct)% · 第\(book.currentChapterIndex + 1)章 · 第\(paraNum)段")
+                            let pct = min(100, Int((Double(chapIdx + 1) / Double(book.totalChapters)) * 100))
+                            Text("已读 \(pct)% · 本章第 \(paraNum) 段")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.indigo)
                         } else {
-                            Text("开始阅读")
+                            Text("本章第 \(paraNum) 段 · 继续阅读")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.indigo)
                         }
@@ -280,7 +292,7 @@ public struct BookshelfView: View {
     @ViewBuilder
     private func bookContextMenu(for book: Book) -> some View {
         Button {
-            selectedBook = book
+            openBook(book)
         } label: {
             Label("立即阅读", systemImage: "book.fill")
         }

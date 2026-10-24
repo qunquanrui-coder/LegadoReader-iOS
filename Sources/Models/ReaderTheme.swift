@@ -94,13 +94,17 @@ public struct ReaderConfig: Codable, Equatable {
     public var customPurifyRules: [String]?
     public var autoDuoBookSpread: Bool?
     
+    public static var isDuoEditionBuild: Bool {
+        (Bundle.main.object(forInfoDictionaryKey: "IS_IPHONE_DUO_EDITION") as? Bool) ?? false
+    }
+    
     public var effectivePageTurnMode: ReaderPageTurnMode {
         get { pageTurnMode ?? .verticalScroll }
         set { pageTurnMode = newValue }
     }
     
     public var effectiveAutoDuoSpread: Bool {
-        get { autoDuoBookSpread ?? true }
+        get { autoDuoBookSpread ?? Self.isDuoEditionBuild }
         set { autoDuoBookSpread = newValue }
     }
     

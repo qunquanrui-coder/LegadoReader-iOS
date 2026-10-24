@@ -47,7 +47,9 @@ public struct ReaderView: View {
     
     public init(book: Book) {
         let saved = StorageManager.shared.getSavedReadingPosition(for: book)
-        var initialBook = book
+        var initialBook = StorageManager.shared.bookshelf.first(where: {
+            $0.id == book.id || ($0.title == book.title && $0.author == book.author)
+        }) ?? book
         initialBook.currentChapterIndex = saved.chapterIndex
         initialBook.currentParagraphIndex = saved.paragraphIndex
         _book = State(initialValue: initialBook)
@@ -1166,8 +1168,14 @@ public struct ReaderView: View {
                 Button {
                     showHUD = false
                     showTTSBar = true
+                    setupSpeechCallbacks()
                     if !speech.isSpeaking {
-                        speech.startReading(paragraphs: formattedParagraphs, fromIndex: currentParagraphIndex)
+                        speech.startReading(
+                            paragraphs: formattedParagraphs,
+                            fromIndex: currentParagraphIndex,
+                            bookTitle: book.title,
+                            chapterTitle: currentChapter?.title
+                        )
                     }
                 } label: {
                     VStack(spacing: 5) {
@@ -1226,6 +1234,10 @@ public struct ReaderView: View {
     
     // MARK: - Logic
     private func setupSpeechCallbacks() {
+        speech.updateNowPlayingMetadata(
+            bookTitle: book.title,
+            chapterTitle: currentChapter?.title ?? book.title
+        )
         speech.onParagraphChanged = { idx in
             self.currentParagraphIndex = idx
             self.saveProgress()
@@ -1248,9 +1260,7 @@ public struct ReaderView: View {
         isLoading = true
         errorMessage = nil
         
-        if !storage.bookshelf.contains(where: { $0.title == book.title && $0.author == book.author }) {
-            storage.addBookToShelf(book)
-        }
+        storage.markBookAsRecentlyRead(book)
         
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
@@ -1306,9 +1316,15 @@ public struct ReaderView: View {
             self.errorMessage = nil
             self.restorePageFromParagraphIfNeeded()
             self.saveProgress()
+            self.setupSpeechCallbacks()
             self.prefetchNextChapter()
             if autoContinueTTS {
-                self.speech.startReading(paragraphs: self.formattedParagraphs, fromIndex: 0)
+                self.speech.startReading(
+                    paragraphs: self.formattedParagraphs,
+                    fromIndex: 0,
+                    bookTitle: self.book.title,
+                    chapterTitle: chapter.title
+                )
             }
             return
         }
@@ -1330,9 +1346,15 @@ public struct ReaderView: View {
                     self.storage.saveChapterCache(bookId: self.book.id, chapterIndex: chapter.index, content: text)
                     self.restorePageFromParagraphIfNeeded()
                     self.saveProgress()
+                    self.setupSpeechCallbacks()
                     self.prefetchNextChapter()
                     if autoContinueTTS {
-                        self.speech.startReading(paragraphs: self.formattedParagraphs, fromIndex: 0)
+                        self.speech.startReading(
+                            paragraphs: self.formattedParagraphs,
+                            fromIndex: 0,
+                            bookTitle: self.book.title,
+                            chapterTitle: chapter.title
+                        )
                     }
                 }
             } catch {

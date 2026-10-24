@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build Unsigned IPA
+    name: Build Unsigned IPAs (iPhone & iPhone Duo)
     runs-on: macos-15
 
     steps:
@@ -37,23 +37,40 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-      - name: Package Unsigned IPA
+      - name: Package Both Unsigned IPAs (Standard iPhone & iPhone Duo)
         run: |
-          mkdir -p Payload
           APP_PATH=$(find ./DerivedData/Build/Products -name "LegadoReader.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "Error: LegadoReader.app not found!"
             exit 1
           fi
           echo "Found app at: $APP_PATH"
+
+          # 1. Package Standard iPhone Edition (LegadoReader-unsigned.ipa)
+          rm -rf Payload
+          mkdir -p Payload
           cp -r "$APP_PATH" Payload/
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 风读小说" Payload/LegadoReader.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :IS_IPHONE_DUO_EDITION false" Payload/LegadoReader.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen true" Payload/LegadoReader.app/Info.plist
           zip -r -q LegadoReader-unsigned.ipa Payload/
           ls -lh LegadoReader-unsigned.ipa
-          echo "Successfully packaged LegadoReader-unsigned.ipa"
 
-      - name: Upload IPA Artifact
+          # 2. Package iPhone Duo Foldable Edition (LegadoReader-iPhoneDuo-unsigned.ipa)
+          rm -rf Payload
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName '风读小说 Duo'" Payload/LegadoReader.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :IS_IPHONE_DUO_EDITION true" Payload/LegadoReader.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen false" Payload/LegadoReader.app/Info.plist
+          zip -r -q LegadoReader-iPhoneDuo-unsigned.ipa Payload/
+          ls -lh LegadoReader-iPhoneDuo-unsigned.ipa
+
+      - name: Upload IPA Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: LegadoReader-unsigned-ipa
-          path: LegadoReader-unsigned.ipa
+          path: |
+            LegadoReader-unsigned.ipa
+            LegadoReader-iPhoneDuo-unsigned.ipa
           retention-days: 30

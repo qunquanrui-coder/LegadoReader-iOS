@@ -116,9 +116,9 @@ public struct BookDetailView: View {
                         if let saved = storage.bookshelf.first(where: { $0.title == book.title && $0.author == book.author }) {
                             book.currentChapterIndex = saved.currentChapterIndex
                             book.currentParagraphIndex = saved.currentParagraphIndex
-                        } else {
-                            storage.addBookToShelf(book)
+                            book.currentChapterTitle = saved.currentChapterTitle
                         }
+                        storage.markBookAsRecentlyRead(book)
                         isReading = true
                     } label: {
                         HStack(spacing: 6) {

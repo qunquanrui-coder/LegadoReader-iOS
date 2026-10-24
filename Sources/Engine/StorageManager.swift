@@ -8,12 +8,15 @@ public class StorageManager: ObservableObject {
     @Published public var bookSources: [BookSource] = []
     @Published public var readerConfig: ReaderConfig = .default
     @Published public var searchHistory: [String] = []
+    @Published public var lastReadBookId: String? = nil
     
     private let bookshelfKey = "LegadoReader_Bookshelf_v2"
     private let sourcesKey = "LegadoReader_BookSources_v2_1"
     private let configKey = "LegadoReader_ReaderConfig_v2"
     private let historyKey = "LegadoReader_SearchHistory_v2"
     private let positionMapKey = "LegadoReader_PositionMap_v3_1"
+    private let chapterTitleMapKey = "LegadoReader_ChapterTitleMap_v3_2"
+    private let lastReadBookIdKey = "LegadoReader_LastReadBookId_v3_2"
     
     private let fileManager = FileManager.default
     private var cacheDirectory: URL {
@@ -23,6 +26,15 @@ public class StorageManager: ObservableObject {
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         return dir
+    }
+    
+    /// Returns the most recently read book for the top "最近阅读" card on the bookshelf
+    public var mostRecentBook: Book? {
+        if let lastId = lastReadBookId,
+           let matched = bookshelf.first(where: { $0.id == lastId }) {
+            return matched
+        }
+        return bookshelf.max(by: { $0.lastReadTime < $1.lastReadTime }) ?? bookshelf.first
     }
     
     private init() {
@@ -35,12 +47,23 @@ public class StorageManager: ObservableObject {
             self.readerConfig = savedConfig
         }
         
+        self.lastReadBookId = UserDefaults.standard.string(forKey: lastReadBookIdKey)
+        
         if let shelfData = UserDefaults.standard.data(forKey: bookshelfKey),
            let savedShelf = try? JSONDecoder().decode([Book].self, from: shelfData) {
             self.bookshelf = savedShelf
         } else if let legacyShelfData = UserDefaults.standard.data(forKey: "LegadoReader_Bookshelf"),
                   let legacyShelf = try? JSONDecoder().decode([Book].self, from: legacyShelfData) {
             self.bookshelf = legacyShelf
+        }
+        
+        // Sort bookshelf so the most recently read book is at the top on launch
+        if bookshelf.count > 1 {
+            bookshelf.sort { a, b in
+                if a.id == lastReadBookId { return true }
+                if b.id == lastReadBookId { return false }
+                return a.lastReadTime > b.lastReadTime
+            }
         }
         
         if let hist = UserDefaults.standard.stringArray(forKey: historyKey) {
@@ -74,7 +97,7 @@ public class StorageManager: ObservableObject {
     
     // MARK: - BookShelf Operations
     public func addBookToShelf(_ book: Book) {
-        if let idx = bookshelf.firstIndex(where: { $0.title == book.title && $0.author == book.author }) {
+        if let idx = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
             bookshelf[idx].sourceUrl = book.sourceUrl
             bookshelf[idx].sourceName = book.sourceName
             bookshelf[idx].bookUrl = book.bookUrl
@@ -83,7 +106,40 @@ public class StorageManager: ObservableObject {
             }
             saveBookshelf()
         } else {
-            bookshelf.insert(book, at: 0)
+            var newBook = book
+            if lastReadBookId == nil {
+                lastReadBookId = newBook.id
+                UserDefaults.standard.set(newBook.id, forKey: lastReadBookIdKey)
+            }
+            bookshelf.append(newBook)
+            saveBookshelf()
+        }
+    }
+    
+    /// Marks a book as the actively read book right now, moving it to index 0 and updating `lastReadBookId`
+    public func markBookAsRecentlyRead(_ book: Book) {
+        let now = Date()
+        if let idx = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
+            var updated = bookshelf[idx]
+            updated.lastReadTime = now
+            if let cover = book.coverUrl, !cover.isEmpty, (updated.coverUrl == nil || updated.coverUrl!.isEmpty) {
+                updated.coverUrl = cover
+            }
+            lastReadBookId = updated.id
+            UserDefaults.standard.set(updated.id, forKey: lastReadBookIdKey)
+            if idx != 0 {
+                bookshelf.remove(at: idx)
+                bookshelf.insert(updated, at: 0)
+            } else {
+                bookshelf[0] = updated
+            }
+            saveBookshelf()
+        } else {
+            var newBook = book
+            newBook.lastReadTime = now
+            lastReadBookId = newBook.id
+            UserDefaults.standard.set(newBook.id, forKey: lastReadBookIdKey)
+            bookshelf.insert(newBook, at: 0)
             saveBookshelf()
         }
     }
@@ -104,7 +160,11 @@ public class StorageManager: ObservableObject {
     }
     
     public func removeBookFromShelf(_ book: Book) {
-        bookshelf.removeAll(where: { $0.id == book.id })
+        bookshelf.removeAll(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) })
+        if lastReadBookId == book.id {
+            lastReadBookId = bookshelf.max(by: { $0.lastReadTime < $1.lastReadTime })?.id
+            UserDefaults.standard.set(lastReadBookId, forKey: lastReadBookIdKey)
+        }
         saveBookshelf()
         let bookDir = cacheDirectory.appendingPathComponent(book.id)
         try? fileManager.removeItem(at: bookDir)
@@ -119,28 +179,47 @@ public class StorageManager: ObservableObject {
         totalChapters: Int,
         paragraphIndex: Int = 0
     ) {
+        let now = Date()
         if let index = bookshelf.firstIndex(where: {
             $0.id == bookId || (bookTitle != nil && $0.title == bookTitle && $0.author == bookAuthor)
         }) {
-            bookshelf[index].currentChapterIndex = chapterIndex
-            bookshelf[index].currentChapterTitle = chapterTitle
-            bookshelf[index].currentParagraphIndex = paragraphIndex
-            bookshelf[index].totalChapters = max(bookshelf[index].totalChapters, totalChapters)
-            bookshelf[index].lastReadTime = Date()
-            let t = bookshelf[index].title
-            let a = bookshelf[index].author
-            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex)
+            var updated = bookshelf[index]
+            updated.currentChapterIndex = chapterIndex
+            updated.currentChapterTitle = chapterTitle
+            updated.currentParagraphIndex = paragraphIndex
+            updated.totalChapters = max(updated.totalChapters, totalChapters)
+            updated.lastReadTime = now
+            
+            let t = updated.title
+            let a = updated.author
+            lastReadBookId = updated.id
+            UserDefaults.standard.set(updated.id, forKey: lastReadBookIdKey)
+            
+            if index != 0 {
+                bookshelf.remove(at: index)
+                bookshelf.insert(updated, at: 0)
+            } else {
+                bookshelf[0] = updated
+            }
+            
+            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex, chapterTitle: chapterTitle)
             saveBookshelf()
         } else if let t = bookTitle, let a = bookAuthor {
-            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex)
+            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex, chapterTitle: chapterTitle)
         }
     }
     
-    private func savePositionEntry(title: String, author: String, chapterIndex: Int, paragraphIndex: Int) {
+    private func savePositionEntry(title: String, author: String, chapterIndex: Int, paragraphIndex: Int, chapterTitle: String? = nil) {
         let key = "\(title.trimmingCharacters(in: .whitespacesAndNewlines))_\(author.trimmingCharacters(in: .whitespacesAndNewlines))"
         var map = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
         map[key] = [chapterIndex, paragraphIndex]
         UserDefaults.standard.set(map, forKey: positionMapKey)
+        
+        if let chTitle = chapterTitle, !chTitle.isEmpty {
+            var titleMap = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
+            titleMap[key] = chTitle
+            UserDefaults.standard.set(titleMap, forKey: chapterTitleMapKey)
+        }
     }
     
     public func getSavedReadingPosition(for book: Book) -> (chapterIndex: Int, paragraphIndex: Int) {
