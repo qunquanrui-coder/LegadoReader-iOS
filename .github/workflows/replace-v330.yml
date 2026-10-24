@@ -1,0 +1,113 @@
+name: Replace v3.3.0 with verified chapter repair
+
+on:
+  push:
+    branches: [ops/replace-v3.3.0-assets]
+    paths: [.github/workflows/replace-v330.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: replace-v330
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: qunquanrui-coder/LegadoReader-iOS
+      FIX_SHA: d74253811c31d76349e454312e4978483ebd8002
+    steps:
+      - name: Verify successful main build and back up existing release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup candidate
+          gh api repos/$GH_REPO/actions/runs/40092054253 > run.json
+          jq -e --arg sha "$FIX_SHA" '.head_sha == $sha and .head_branch == "main" and .conclusion == "success"' run.json
+          gh api repos/$GH_REPO/releases/tags/v3.3.0 > backup/release.json
+          jq -e '.id == 422666524 and .immutable == false and (.assets | length) == 2' backup/release.json
+          gh api repos/$GH_REPO/git/ref/tags/v3.3.0 > backup/tag.json
+          gh release download v3.3.0 --dir backup --pattern '*.ipa'
+          gh api repos/$GH_REPO/actions/artifacts/12559706126/zip > candidate.zip
+          echo '14d36492852ed41650ea2526056080017215955412ca3fe2babd62bab821f525  candidate.zip' | sha256sum --check
+          unzip -q candidate.zip -d candidate
+          python3 - <<'PY'
+          import hashlib, json, pathlib, plistlib, zipfile
+          expected = {'LegadoReader-unsigned.ipa': False, 'LegadoReader-iPhoneDuo-unsigned.ipa': True}
+          assert {p.name for p in pathlib.Path('candidate').iterdir()} == set(expected)
+          for name, duo in expected.items():
+              with zipfile.ZipFile(pathlib.Path('candidate') / name) as z:
+                  assert z.testzip() is None
+                  p = plistlib.loads(z.read('Payload/LegadoReader.app/Info.plist'))
+                  assert p['CFBundleShortVersionString'] == '3.3.0'
+                  assert p['IS_IPHONE_DUO_EDITION'] == duo
+          release = json.loads(pathlib.Path('backup/release.json').read_text())
+          for asset in release['assets']:
+              data = (pathlib.Path('backup') / asset['name']).read_bytes()
+              assert 'sha256:' + hashlib.sha256(data).hexdigest() == asset['digest']
+          PY
+
+      - name: Preserve original release before replacement
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3.3.0-before-chapter-repair
+          path: backup/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Replace IPA assets and align source tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload v3.3.0 candidate/LegadoReader-unsigned.ipa candidate/LegadoReader-iPhoneDuo-unsigned.ipa --clobber
+          gh api repos/$GH_REPO/releases/tags/v3.3.0 > updated.json
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          r = json.loads(pathlib.Path('updated.json').read_text())
+          for name in ['LegadoReader-unsigned.ipa', 'LegadoReader-iPhoneDuo-unsigned.ipa']:
+              a = next(a for a in r['assets'] if a['name'] == name)
+              data = (pathlib.Path('candidate') / name).read_bytes()
+              assert a['state'] == 'uploaded' and a['size'] == len(data)
+              assert a['digest'] == 'sha256:' + hashlib.sha256(data).hexdigest()
+          PY
+          tag_sha=$(gh api repos/$GH_REPO/git/ref/tags/v3.3.0 --jq '.object.sha')
+          if [ "$tag_sha" != "$FIX_SHA" ]; then
+            test "$tag_sha" = 26e4f478b20b5a5b02feefc1d53823a7f18b6706
+            gh api --method PATCH repos/$GH_REPO/git/refs/tags/v3.3.0 -f sha="$FIX_SHA" -F force=true
+          fi
+          python3 - <<'PY'
+          import json, pathlib
+          old = json.loads(pathlib.Path('backup/release.json').read_text())
+          notice = '''## v3.3.0 正文完整性修复版（2026-10-24 替换）
+
+          本页两个 IPA 已替换为主线提交 `d74253811c31d76349e454312e4978483ebd8002` 的修复版本，版本号保持 v3.3.0。此前下载的 v3.3.0 安装包请重新下载并签名安装。
+
+          - 修复正文解析中可能截断后续文本、误删正常段落的问题。
+          - 统一阅读、预加载、离线下载和听书的章节分页加载；检测到后续页面未完成时提示失败，避免把残缺内容当作完整章节缓存。
+          - 旧下载缓存保留隔离，重新读取时使用经过完整性检查的新缓存；书架、书源与阅读进度保留。
+          - 已通过 23 项 iOS 模拟器测试及 Release 构建。第三方书源仍可能变更，无法处理的续页会明确提示。
+
+          构建记录：https://github.com/qunquanrui-coder/LegadoReader-iOS/actions/runs/40092054253
+
+          ---
+
+          '''
+          pathlib.Path('notes.md').write_text(notice + old['body'], encoding='utf-8')
+          PY
+          gh release edit v3.3.0 --title '风读 v3.3.0 正文完整性修复版（iPhone & iPhone Duo）' --notes-file notes.md
+
+      - name: Verify public release downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir verified
+          gh release download v3.3.0 --dir verified --pattern '*.ipa'
+          cmp candidate/LegadoReader-unsigned.ipa verified/LegadoReader-unsigned.ipa
+          cmp candidate/LegadoReader-iPhoneDuo-unsigned.ipa verified/LegadoReader-iPhoneDuo-unsigned.ipa
+          test "$(gh api repos/$GH_REPO/git/ref/tags/v3.3.0 --jq '.object.sha')" = "$FIX_SHA"
+          sha256sum verified/*.ipa
