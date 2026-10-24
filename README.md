@@ -1,21 +1,68 @@
 # 风读 (LegadoReader-iOS) 📚
 
-原生 **Swift + SwiftUI** 开发的 iOS 小说阅读器，兼容**开源阅读（Legado 3.0）**标准书源规则（支持笔趣阁等全网千万级书源）。
+![Platform](https://img.shields.io/badge/Platform-iOS%2016.0%2B-indigo)
+![Swift](https://img.shields.io/badge/Swift-5.9-orange)
+![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
+![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
+![Release](https://img.shields.io/badge/Release-v3.3.0-brightgreen)
+
+**风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 纯净小说阅读器，深度兼容 **开源阅读（Legado 3.0）** 书源规则体系（内置 20 个实测高速纯净书源 + 原生 `JavaScriptCore` 脚本引擎支持 `@js:` / `<js>` 规则），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
 
 ---
 
-## ✨ 核心特性
+## 📦 最新版本下载 (`v3.3.0` 旗舰完整版)
 
-- 📱 **纯原生 SwiftUI**：针对 iOS 16/17+ 优化，丝滑流畅，非网页套壳。
-- 🔍 **多书源并发检索**：基于 Swift async/await 并发向全网书源检索小说，快速去重合并。
-- 🔄 **智能换源**：随时比对不同站点目录，一键无缝换源阅读。
-- 📖 **沉浸式阅读器**：
-  - 羊皮纸 / 护眼绿 / 纯黑夜间 / 极简白等多种色板。
-  - 字号、行距、边距自适应调节。
-  - 翻页进度条、章节目录直达、重试刷新。
-- 💾 **离线章节缓存**：自动缓存已读与预读章节到本地沙盒，断网无忧。
-- 🌐 **网络导入 3000+ 书源**：支持直接粘贴远程 JSON 直链，一键导入。
-- 🚀 **GitHub Actions 云端自动构建**：无需 Mac 电脑，推送代码至 GitHub 即可自动编译并输出未签名 `.ipa` 安装包。
+直接前往 [**GitHub Releases (v3.3.0)**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.3.0) 或点击下方直链下载：
+
+| 版本类型 | 适用设备 | 安装包直链 | 核心特性差异 |
+| :--- | :--- | :--- | :--- |
+| 📱 **iPhone 标准通用版** | 所有常规单屏 iPhone (`iOS 16.0+`) | [**`LegadoReader-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.3.0/LegadoReader-unsigned.ipa) | 桌面名称 **`风读小说`**，针对单手竖屏握持优化，默认全屏沉浸模式 |
+| 📖 **iPhone Duo 折叠双屏专享版** | **iPhone Duo**（5.4" 外屏 + 7.6" 书本式折叠内屏）及宽屏设备 | [**`LegadoReader-iPhoneDuo-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.3.0/LegadoReader-iPhoneDuo-unsigned.ipa) | 桌面名称 **`风读小说 Duo`**，支持内外屏 0 黑边动态窗口切换、**展开 7.6" 内屏自动双页书本对开（带中轴 3D 书脊折痕光影）**、**左屏常驻目录+右屏阅读分屏模式**、内外屏自适应 3 列/5 列书架 |
+
+---
+
+## ✨ 核心功能全景
+
+### 1. 📖 沉浸式排版与 CoreText 像素级测量分页
+- **6 款东方美学背景主题**：`羊皮卷`、`宣纸白`、`竹林绿`、`樱花粉`、`暮光灰`、`曜石黑`。
+- **3 种字体排版与自由字号行距**：支持 `书宋衬线`、`系统黑体`、`温润圆体`，字号（`14pt ~ 30pt`）与行距（`4pt ~ 20pt`）实时无级调节。
+- **3 种翻页模式**：
+  - `上下滚动`：丝滑长卷阅读，段落级可视锚点实时追踪。
+  - `左右翻页`：基于 `GeometryReader` 真实可视尺寸 + `NSString.boundingRect` (CoreText) 像素级测量每一段高度，每一页严丝合缝贴合屏幕。
+  - `Duo 双页书本`：左右双页对开（左页 $2k+1$ + 中轴书脊 + 右页 $2k+2$），翻一次翻两页。
+- **智能段落重排与文本净化**：
+  - 自动识别 HTML `<br>`、`</p>`、`&nbsp;`、双全角空格 `\u{3000}\u{3000}`，并对无换行粘连长章节按句末标点与对话引号智能分段，每段自动首行缩进两字符。
+  - 支持 **原文 / 繁转简 / 简转繁** 实时转换，支持自定义去广告净化词条。
+
+### 2. 📱 iPhone Duo 折叠双屏深度适配
+- **5.4" 外屏 & 7.6" 折叠内屏满血无黑边**：启用 `UIRequiresFullScreen = false` 与多场景 `UIApplicationSceneManifest`，合上外屏单手精华阅读、展开内屏瞬间切换为宽幅视野，0 兼容黑边、不断流不丢进度。
+- **精装实体书双页对开**：展开内屏自动切换为左右双页书本排版，正中央对齐物理钛合金铰链渲染仿真 **3D 书脊凹槽光影**，支持左右滑动或点击左右侧边缘一次翻过两页。
+- **左屏常驻目录 + 右屏沉浸阅读**：展开内屏时，顶部导航栏提供 **「左屏目录 / 双页」** 一键切换按钮，支持左半屏固定章节目录抽屉、右半屏独立阅读。
+
+### 3. 🎧 真人情感神经网络语音听书 & 锁屏后台无损续航
+- **5 位微软 Edge Neural 真人情感主播**：
+  - `云希 · 阳光少年音 (荐)`、`晓晓 · 温柔知性女声`、`云健 · 浑厚武侠评书`、`晓伊 · 灵动甜美女声`、`云扬 · 沉稳播音男声`。
+  - 内置 `Sec-MS-GEC v2` (`CS64-SHA256`) 动态安全令牌生成与服务端 `Date` 时钟偏移自动校准，搭配 **百度在线神经网络语音** 与 **iOS 本地高音质 Siri 语音** 三级自动容灾降级。
+- **双段超前预合成队列**：朗读当前段落时，后台自动并发预合成后续 **2 个段落** 的 MP3 音频流，段落切换零等待。
+- **锁屏后台连续朗读 + 灵动岛/锁屏控制中心 + 书架底部迷你播放条**：
+  - 声明系统级 `UIBackgroundModes: [audio, fetch, processing]` 权限，配合内存级静音 PCM 循环保活引擎与 `UIBackgroundTask` 双重守护，手机息屏锁屏后可通宵连续朗读并自动跨章节续播。
+  - 接入 `MPNowPlayingInfoCenter` 与 `MPRemoteCommandCenter`，锁屏界面与灵动岛实时显示书名、章节与段落进度，支持锁屏或 AirPods 耳机直接控制暂停/继续/上一段/下一段。
+  - 听书时退回书架，语音引擎自动接管跨章续读，并在书架底部浮现 **「迷你听书播放条」**。
+
+### 4. 📍 精确到「第几章·第几段」的续读记忆与智能目录
+- **章节 + 段落双层持久化定位**：基于 `LazyVStack` 实时追踪屏幕顶部可见段落序号，退出小说或重启 App 后再次打开，自动跳回上次退出的 **精确章节与精确段落**（带顶部定位提示胶囊）。
+- **书架「最近阅读」实时动态置顶**：点开任意小说或翻页阅读时，自动将其置顶并实时刷新书架顶部的「最近阅读」大卡片。
+- **目录弹窗秒跳当前章节**：在阅读器内点击「目录」，弹窗打开瞬间自动滚动并居中高亮当前正在阅读的章节，提供 **「当前」一键定位**、**「正序/倒序」一键切换**、章节关键词检索及 **`已缓存`** 绿标提示。
+
+### 5. 🔍 多源并发搜书、相关度智能排序与无感换源对齐
+- **6 路并发检索 + 6 级相关度评分排序**：结果按 `书名完全一致 (1000分)` -> `作者完全一致 (850分)` -> `书名前缀匹配 (700分)` -> `书名包含关键词 (500分)` -> `作者包含关键词` 实时重排，最符合搜索要求的小说永远排在第一位。
+- **首字实时联想 + 热门分类榜单**：输入首字即刻触发全网书名/作者自动补全建议，探索页内置热搜风云榜、玄幻仙侠、都市言情、科幻悬疑、历史武侠五大榜单。
+- **换源自动清旧缓存 + 按章节标题智能对齐**：切换书源时自动清理旧站点缓存，并通过章节标题归一化匹配算法在新目录中自动对齐到同名章节，解决不同网站因「请假条/感言」导致目录序号偏移串章的问题。
+
+### 6. 💾 四档高速并发缓存、JS 书源引擎与全量数据备份恢复
+- **四档 6 路并发离线缓存**：阅读器顶部与书籍详情页支持 **「缓存后 30 章」**、**「缓存后 100 章」**、**「缓存后续全部章节」** 与 **「全本完整缓存」**，缓存存储在 `Library/Application Support/NovelCache_v3` 并自动标记 `isExcludedFromBackup = true`，不占 iCloud 空间。
+- **内置原生 `JavaScriptCore` (`LegadoJSEngine`)**：支持解析含 `@js:`、` <js>...</js> ` 及 `{{...}}` 动态脚本的 Legado 书源（内置 `java.encodeURI`、`java.base64Encode/Decode`、`java.md5Encode`、`java.put/get` 等桥接函数）。
+- **全量数据备份与恢复（防丢失）**：在「我的 -> 数据备份与恢复」中支持 **导出完整备份 `.json` 文件**、**复制备份到剪贴板**、**从剪贴板恢复**、**从文件导入恢复**，一次性备份全部书架藏书、章节+段落阅读进度、书源与阅读设置。
 
 ---
 
@@ -23,81 +70,63 @@
 
 ```text
 LegadoReader-iOS/
-├── .github/workflows/build.yml   # GitHub Actions 自动化编译打包工作流
-├── project.yml                   # XcodeGen 规范配置文件（自动生成 Xcode 工程）
+├── .github/workflows/build.yml          # GitHub Actions 云端自动构建双版本 IPA 工作流
+├── project.yml                          # XcodeGen 工程配置文件 (v3.3.0)
 ├── Resources/
-│   ├── Info.plist                # 应用配置与网络权限 (允许任意网络请求)
-│   ├── default_sources.json      # 内置精选笔趣阁等可用书源
-│   └── Assets.xcassets/          # 图标与静态资产
+│   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
+│   ├── default_sources.json             # 内置 20 个实测高速纯净 Legado 书源
+│   └── Assets.xcassets/                 # 东方水墨书卷 AppIcon 与应用静态资源
 └── Sources/
-    ├── App/                      # 应用入口与主 Tab 页面
-    ├── Engine/                   # Legado 规则解析引擎、网络请求与持久化
-    ├── Models/                   # 数据模型 (Book, Chapter, BookSource 等)
-    └── Views/                    # 书架、搜索、详情、阅读器、书源管理视图
+    ├── App/
+    │   ├── LegadoReaderApp.swift        # App 入口
+    │   └── ContentView.swift            # 主 Tab 导航、阅读偏好设置、全量数据备份与恢复、缓存管理
+    ├── Models/
+    │   ├── Book.swift                   # 书籍与章节+段落阅读进度模型
+    │   ├── Chapter.swift                # 章节目录模型
+    │   ├── BookSource.swift             # Legado 3.0 书源规则模型与容错解码器
+    │   └── ReaderTheme.swift            # 主题色板、翻页模式 (含 Duo 双页)、简繁转换、3D 书封组件
+    ├── Engine/
+    │   ├── LegadoParser.swift           # CSS/XPath/Regex 规则解析器、正文智能分段与去广告引擎
+    │   ├── LegadoJSEngine.swift         # 基于 JavaScriptCore 的 @js: / <js> 书源脚本执行引擎
+    │   ├── ChapterTextFormatter.swift   # 公共正文分段器与换源章节标题智能匹配算法
+    │   ├── NetworkManager.swift         # UTF-8/GB18030 自动解码网络层与搜索模板渲染
+    │   ├── EdgeNeuralTTS.swift          # 微软 Edge 神经网络语音 WebSocket 引擎 (Sec-MS-GEC v2) + 百度兜底
+    │   ├── SpeechSynthesizerManager.swift # 语音听书控制器、静音流锁屏保活、灵动岛/锁屏控制、后台脱离续读
+    │   └── StorageManager.swift         # 书架最近阅读追踪、段落坐标映射、离线缓存与全量 JSON 备份恢复
+    └── Views/
+        ├── Bookshelf/
+        │   └── BookshelfView.swift      # 书架主页、最近阅读动态卡片、内外屏自适应网格、底部迷你听书吧
+        ├── Search/
+        │   ├── SearchView.swift         # 多源并发搜索、6 级相关性排序、首字实时联想、热门分类榜单
+        │   └── BookDetailView.swift     # 书籍详情、一键全本离线缓存、目录预览与换源
+        ├── Reader/
+        │   ├── ReaderView.swift         # 核心阅读器 (上下滚动 / CoreText 测量左右翻页 / Duo 双页对开 & 左屏目录)
+        │   ├── ChapterListView.swift    # 目录弹窗 (打开秒跳当前章节、正序/倒序切换、缓存状态标记)
+        │   ├── ReaderSettingsSheet.swift # 字体/行距/主题/简繁/净化/Duo 双页开关面板
+        │   └── ChangeSourceSheet.swift  # 多书源并发比对与一键换源面板
+        └── Sources/
+            └── SourceManagerView.swift  # 书源管理、一键网络导入 (XIU2 / 3000+ 书源) 与剪贴板导入
 ```
 
 ---
 
-## 🚀 部署与云端编译指南 (在 Windows 上即可完成)
+## 📲 安装到 iPhone / iPhone Duo 指南
 
-### 第一步：在 GitHub 上创建新仓库
-1. 访问你的 GitHub 主页：[https://github.com/qunquanrui-coder](https://github.com/qunquanrui-coder)
-2. 点击右上角 **New**（新建仓库）。
-3. 仓库名称填写：`LegadoReader-iOS`（设为 Public 或 Private 均可）。
-4. **不要勾选** "Add a README file"，点击 **Create repository**。
+由于未签名 `.ipa` 安装包需签名后装入 iOS 设备，推荐以下任一方式：
 
----
-
-### 第二步：推送本地代码到 GitHub
-在当前 Windows 电脑上打开 PowerShell，依次运行以下命令：
-
-```powershell
-# 1. 进入项目根目录
-cd C:\Users\qunqun\.gemini\antigravity\scratch\LegadoReader-iOS
-
-# 2. 初始化 Git 仓库
-git init
-
-# 3. 添加所有文件并提交
-git add .
-git commit -m "feat: initial release of LegadoReader iOS"
-
-# 4. 关联到你的 GitHub 仓库 (若未设置分支名则切换到 main)
-git branch -M main
-git remote add origin https://github.com/qunquanrui-coder/LegadoReader-iOS.git
-
-# 5. 推送到 GitHub
-git push -u origin main
-```
+1. **TrollStore（巨魔商店，永久免签）**：
+   - 将下载的 `LegadoReader-unsigned.ipa`（或 `LegadoReader-iPhoneDuo-unsigned.ipa`）发送至手机，使用 TrollStore 打开即可一键永久安装。
+2. **Sideloadly / AltStore / 爱思助手（无需越狱，支持所有 iOS 版本）**：
+   - 在电脑端打开 [Sideloadly](https://sideloadly.io/)，连接手机，拖入 `.ipa` 文件并输入 Apple ID 即可自动签名安装。
+3. **个人证书 / 轻松签 (ESign) / 全能签**：
+   - 导入 `.ipa` 后使用自有证书签名安装。
 
 ---
 
-### 第三步：等待 GitHub 自动编译生成 IPA
-1. 推送完成后，打开网页上的仓库页面，点击上方的 **Actions** 标签栏。
-2. 你会看到名为 **"Build iOS IPA"** 的工作流正在由 GitHub 免费的 macOS 服务器自动运行。
-3. 等待约 3~4 分钟构建完成（显示绿色的对勾 ✅）。
-4. 点击该次构建记录，在页面下方的 **Artifacts** 区域即可找到并下载 **`LegadoReader-unsigned-ipa`** 压缩包！
-5. 解压后即可得到 `LegadoReader-unsigned.ipa` 安装包。
+## 🗓️ 版本演进记录
 
----
-
-### 第四步：安装到 iPhone
-
-由于 iOS 系统的安全限制，未签名的 `.ipa` 安装到真机有以下常见方案：
-
-1. **巨魔商店（TrollStore）**：如果你的 iPhone 系统支持巨魔，直接将 `.ipa` 传输到手机隔空投送或用微云/百度网盘打开，选择“TrollStore”安装，永久可用。
-2. **Sideloadly / 爱思助手 / AltStore**（推荐，任何正常 iPhone 均可）：
-   - 在电脑上下载免费的 [Sideloadly](https://sideloadly.io/)。
-   - iPhone 连接电脑，打开 Sideloadly。
-   - 将 `LegadoReader-unsigned.ipa` 拖入，输入你的 Apple ID 即可自动免费自签名并直接装入 iPhone（无需越狱，可用 7 天，到期电脑自动连网刷新）。
-3. **企业证书 / 签名码工具**：使用国内常见的个人签名或签名助手安装。
-
----
-
-## 📖 在应用内导入 3000+ 书源
-
-安装打开 App 后：
-1. 切换到 **“书源”** 标签页。
-2. 点击右上角 **“网络导入”**。
-3. 预置按钮中已内置 **“3000+ 综合校验源”** 与 **“XIU2 精品书源”**，点击即可一键载入！
-4. 导入后回到 **“搜索”** 栏，输入任何你想看的小说，即可享受极速纯净阅读！
+- **`v3.3.0`**：新增真实屏幕尺寸 CoreText (`NSString.boundingRect`) 像素级测量分页、全量数据备份与恢复系统（导出/导入 `.json` 及剪贴板恢复）、原生 `JavaScriptCore` (`LegadoJSEngine`) 支持 `@js:` / `<js>` 书源规则、统一工程版本号管理。
+- **`v3.2.1`**：修复换源后沿用旧缓存导致章节错位问题（换源自动清缓存并按章节标题智能对齐新目录）、分段结果缓存与 1.2 秒节流保存进度、支持退出阅读器后后台自动续章听书 + 书架底部迷你播放条、离线缓存迁移至 `Application Support` 并排除 iCloud 备份。
+- **`v3.2.0`**：修复书架「最近阅读」卡片动态追踪与置顶、新增锁屏后台连续听书保活引擎 + 锁屏/灵动岛媒体控制中心、修复目录弹窗打开自动居中跳转到当前阅读章节。
+- **`v3.1.0`**：升级微软 Edge Neural 真人情感语音听书（云希/晓晓/云健等 5 位主播 + 双段预取）、新增全本完整缓存等四档并发缓存、新增精确到章节内「第几段」的退出续读定位，并推出 **iPhone Duo 折叠双屏专享版**。
+- **`v3.0.0` ~ `v1.0.0`**：构建纯原生 SwiftUI 阅读器架构、内置 20 个高速纯净书源、多源并发搜索与相关性排序、仿真翻页、简繁转换与去广告净化。
