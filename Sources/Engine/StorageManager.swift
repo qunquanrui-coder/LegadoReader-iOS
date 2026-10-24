@@ -80,7 +80,7 @@ public class StorageManager: ObservableObject {
         try? fileManager.removeItem(at: cacheDirectoryURL.appendingPathComponent(bookId))
     }
     
-    private static func bookKey(title: String, author: String) -> String {
+    static func bookKey(title: String, author: String) -> String {
         "\(title.trimmingCharacters(in: .whitespacesAndNewlines))_\(author.trimmingCharacters(in: .whitespacesAndNewlines))"
     }
     
@@ -315,7 +315,7 @@ public class StorageManager: ObservableObject {
     }
     
     private func savePositionEntry(title: String, author: String, chapterIndex: Int, paragraphIndex: Int, chapterTitle: String? = nil) {
-        let key = "\(title.trimmingCharacters(in: .whitespacesAndNewlines))_\(author.trimmingCharacters(in: .whitespacesAndNewlines))"
+        let key = Self.bookKey(title: title, author: author)
         var map = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
         map[key] = [chapterIndex, paragraphIndex]
         UserDefaults.standard.set(map, forKey: positionMapKey)
@@ -328,7 +328,7 @@ public class StorageManager: ObservableObject {
     }
     
     public func getSavedReadingPosition(for book: Book) -> (chapterIndex: Int, paragraphIndex: Int) {
-        let key = "\(book.title.trimmingCharacters(in: .whitespacesAndNewlines))_\(book.author.trimmingCharacters(in: .whitespacesAndNewlines))"
+        let key = Self.bookKey(title: book.title, author: book.author)
         if let map = UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]],
            let pair = map[key], pair.count >= 2 {
             return (pair[0], pair[1])
@@ -405,6 +405,23 @@ public class StorageManager: ObservableObject {
                                                            chapterURL: chapterURL, sourceURL: sourceURL) != nil
     }
     
+    // MARK: - TOC Persistence (offline catalogue)
+    /// Persisted chapter list for a book — without it even fully cached chapters cannot be opened offline.
+    public func loadCachedToc(for book: Book) -> TocSnapshot? {
+        TocCache(directory: cacheDirectory).read(bookId: book.id, sourceURL: book.sourceUrl, bookURL: book.bookUrl)
+    }
+    
+    @discardableResult
+    public func saveCachedToc(for book: Book, chapters: [Chapter], complete: Bool) -> Bool {
+        guard !chapters.isEmpty else { return false }
+        return TocCache(directory: cacheDirectory).save(bookId: book.id, sourceURL: book.sourceUrl,
+                                                        bookURL: book.bookUrl, chapters: chapters, complete: complete)
+    }
+    
+    public func removeCachedToc(bookId: String) {
+        TocCache(directory: cacheDirectory).remove(bookId: bookId)
+    }
+    
     @discardableResult
     public func saveChapterCache(bookId: String, chapterIndex: Int, content: CompleteChapterContent) -> Bool {
         if let shelfBook = bookshelf.first(where: { $0.id == bookId }), shelfBook.sourceUrl != content.sourceURL {
@@ -421,7 +438,7 @@ public class StorageManager: ObservableObject {
     
     // MARK: - Full Data Backup & Restore (Bookshelf + Progress + Sources + Config)
     public struct FullBackupPayload: Codable {
-        public var version: String = "3.3.0"
+        public var version: String = "3.4.0"
         public var exportedAt: Date = Date()
         public var bookshelf: [Book]
         public var bookSources: [BookSource]
@@ -458,6 +475,64 @@ public class StorageManager: ObservableObject {
         return fileURL
     }
     
+    // MARK: - Backup Merge Rules
+    /// Single "who is further along" rule: the newer read wins, and on a tie the higher
+    /// chapter index wins. The shelf, the position map and the reader all consume this one
+    /// decision, so a stale backup can never half-roll-back a newer reading position.
+    static func isNewerReadingState(_ incoming: Book, than local: Book) -> Bool {
+        if incoming.lastReadTime != local.lastReadTime {
+            return incoming.lastReadTime > local.lastReadTime
+        }
+        return incoming.currentChapterIndex > local.currentChapterIndex
+    }
+
+    /// Merges a backup into the current shelf, then rebuilds the position/title maps from
+    /// the merged shelf so all three stores always agree.
+    static func mergeBackupState(
+        localBooks: [Book],
+        localPositions: [String: [Int]],
+        localTitles: [String: String],
+        backupBooks: [Book],
+        backupPositions: [String: [Int]],
+        backupTitles: [String: String]
+    ) -> (bookshelf: [Book], positions: [String: [Int]], titles: [String: String]) {
+        var merged = localBooks
+        for incoming in backupBooks {
+            if let index = merged.firstIndex(where: {
+                $0.id == incoming.id || ($0.title == incoming.title && $0.author == incoming.author)
+            }) {
+                if isNewerReadingState(incoming, than: merged[index]) {
+                    merged[index] = incoming
+                }
+            } else {
+                merged.append(incoming)
+            }
+        }
+
+        var positions = localPositions
+        var titles = localTitles
+        let shelfKeys = Set(merged.map { bookKey(title: $0.title, author: $0.author) })
+
+        // Keep legacy map-only entries from the backup when no shelf record exists for them.
+        for (key, pair) in backupPositions where !shelfKeys.contains(key) {
+            if positions[key] == nil { positions[key] = pair }
+        }
+        for (key, title) in backupTitles where !shelfKeys.contains(key) {
+            if titles[key] == nil { titles[key] = title }
+        }
+
+        // The merged shelf is the single source of truth; rewrite every entry so the
+        // bookshelf card, the reader's getSavedReadingPosition() and the title cache agree.
+        for book in merged {
+            let key = bookKey(title: book.title, author: book.author)
+            positions[key] = [book.currentChapterIndex, book.currentParagraphIndex ?? 0]
+            if let chapterTitle = book.currentChapterTitle, !chapterTitle.isEmpty {
+                titles[key] = chapterTitle
+            }
+        }
+        return (merged, positions, titles)
+    }
+
     public func restoreFromBackupJSON(_ jsonString: String) throws -> (booksCount: Int, sourcesCount: Int) {
         guard let data = jsonString.data(using: .utf8) else {
             throw NSError(domain: "LegadoReader", code: -10, userInfo: [NSLocalizedDescriptionKey: "备份文本编码无效"])
@@ -469,32 +544,29 @@ public class StorageManager: ObservableObject {
         self.readerConfig = payload.readerConfig
         saveConfig()
         
-        // 2. Merge position maps
-        var posMap = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
-        for (k, v) in payload.positionMap { posMap[k] = v }
-        UserDefaults.standard.set(posMap, forKey: positionMapKey)
+        // 2. Merge the shelf and rebuild the position maps from the merged result in one go.
+        //    A stale backup must not keep the newer shelf row while rolling the position map back.
+        let currentPositions = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
+        let currentTitles = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
+        let mergedState = Self.mergeBackupState(
+            localBooks: bookshelf,
+            localPositions: currentPositions,
+            localTitles: currentTitles,
+            backupBooks: payload.bookshelf,
+            backupPositions: payload.positionMap,
+            backupTitles: payload.chapterTitleMap
+        )
+        self.bookshelf = mergedState.bookshelf
+        saveBookshelf()
+        UserDefaults.standard.set(mergedState.positions, forKey: positionMapKey)
+        UserDefaults.standard.set(mergedState.titles, forKey: chapterTitleMapKey)
         
-        var titleMap = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
-        for (k, v) in payload.chapterTitleMap { titleMap[k] = v }
-        UserDefaults.standard.set(titleMap, forKey: chapterTitleMapKey)
-        
-        // 3. Merge bookshelf
-        for incoming in payload.bookshelf {
-            if let idx = bookshelf.firstIndex(where: { $0.id == incoming.id || ($0.title == incoming.title && $0.author == incoming.author) }) {
-                if incoming.lastReadTime >= bookshelf[idx].lastReadTime || incoming.currentChapterIndex > bookshelf[idx].currentChapterIndex {
-                    bookshelf[idx] = incoming
-                }
-            } else {
-                bookshelf.append(incoming)
-            }
-        }
-        if let lastId = payload.lastReadBookId {
+        if let lastId = payload.lastReadBookId, mergedState.bookshelf.contains(where: { $0.id == lastId }) {
             self.lastReadBookId = lastId
             UserDefaults.standard.set(lastId, forKey: lastReadBookIdKey)
         }
-        saveBookshelf()
         
-        // 4. Merge book sources
+        // 3. Merge book sources
         var existingUrls = Set(bookSources.map { $0.bookSourceUrl })
         for s in payload.bookSources {
             if !s.bookSourceUrl.isEmpty && !existingUrls.contains(s.bookSourceUrl) {

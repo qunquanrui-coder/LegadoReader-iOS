@@ -381,22 +381,224 @@ public class LegadoParser {
         return extractValue(from: doc, rule: tocRule, baseUrl: baseUrl)
     }
     
-    // MARK: - High-Level Fetch & Parse TOC (Handles Separate TOC URL + Fallbacks)
-    public func fetchAndParseToc(bookUrl: String, source: BookSource) async throws -> [Chapter] {
-        let (bookHtml, finalBookUrl) = try await NetworkManager.shared.fetchString(from: bookUrl, referer: source.bookSourceUrl)
-        
-        // 1. Check if BookInfo specifies a separate TOC URL
+    // MARK: - High-Level Fetch & Parse TOC (Handles Separate TOC URL, Pagination + Fallbacks)
+    /// Outcome of a TOC fetch. `complete` is false when the pagination walk hit a page
+    /// limit, a repeated page, a URL loop or a network error before it ran out of
+    /// "next page" links. Callers may cache a partial TOC, but must not label it complete.
+    public struct TocLoadResult {
+        public let chapters: [Chapter]
+        public let complete: Bool
+        public let pagesFetched: Int
+        public let lastErrorDescription: String?
+        public init(chapters: [Chapter], complete: Bool, pagesFetched: Int, lastErrorDescription: String? = nil) {
+            self.chapters = chapters
+            self.complete = complete
+            self.pagesFetched = pagesFetched
+            self.lastErrorDescription = lastErrorDescription
+        }
+    }
+
+    public typealias TocFetchPage = (String, String?) async throws -> (String, URL)
+
+    /// Fetches and parses the whole catalogue, following `ruleToc.nextTocUrl` (or a
+    /// best-effort "下一页" / rel=next link) across paginated catalogues, then re-indexes
+    /// every chapter so indices always equal positions in the returned array.
+    public func fetchToc(
+        bookUrl: String,
+        source: BookSource,
+        maxPages: Int = 50,
+        fetchPage: @escaping TocFetchPage = {
+            try await NetworkManager.shared.fetchString(from: $0, referer: $1)
+        }
+    ) async throws -> TocLoadResult {
+        let pageLimit = max(1, maxPages)
+        let (bookHtml, finalBookUrl) = try await fetchPage(bookUrl, source.bookSourceUrl)
+
+        var currentHtml = bookHtml
+        var currentURL = finalBookUrl
+
+        // 1. Prefer a separate TOC page when the book-info rule points at one.
         if let separateTocUrl = resolveTocUrl(html: bookHtml, baseUrl: finalBookUrl, source: source),
-           separateTocUrl != finalBookUrl.absoluteString {
-            if let (tocHtml, finalTocUrl) = try? await NetworkManager.shared.fetchString(from: separateTocUrl, referer: finalBookUrl.absoluteString),
-               let chapters = try? parseToc(html: tocHtml, baseUrl: finalTocUrl, source: source),
-               chapters.count >= 3 {
-                return chapters
+           separateTocUrl != finalBookUrl.absoluteString,
+           let (tocHtml, finalTocUrl) = try? await fetchPage(separateTocUrl, finalBookUrl.absoluteString) {
+            let provisional = (try? parseToc(html: tocHtml, baseUrl: finalTocUrl, source: source)) ?? []
+            if provisional.count >= 3 {
+                currentHtml = tocHtml
+                currentURL = finalTocUrl
             }
         }
-        
-        // 2. Parse TOC from Book Page directly (with built-in smart fallbacks)
-        return try parseToc(html: bookHtml, baseUrl: finalBookUrl, source: source)
+
+        var collected: [Chapter] = []
+        var seenChapterURLs = Set<String>()
+        var visitedTocPages = Set<String>()
+        var pageCount = 0
+        var complete = true
+        var lastError: String?
+
+        while true {
+            try Task.checkCancellation()
+            let pageKey = canonicalURLKey(currentURL.absoluteString)
+            guard visitedTocPages.insert(pageKey).inserted else {
+                complete = false
+                break
+            }
+
+            let parsed: [Chapter]
+            do {
+                parsed = try parseToc(html: currentHtml, baseUrl: currentURL, source: source)
+            } catch {
+                if pageCount == 0 { throw error }
+                complete = false
+                lastError = error.localizedDescription
+                break
+            }
+
+            var addedOnThisPage = 0
+            for chapter in parsed {
+                let chapterKey = canonicalURLKey(chapter.url)
+                guard !chapterKey.isEmpty, !seenChapterURLs.contains(chapterKey) else { continue }
+                seenChapterURLs.insert(chapterKey)
+                collected.append(chapter)
+                addedOnThisPage += 1
+            }
+            pageCount += 1
+
+            if pageCount == 1 && collected.isEmpty {
+                return TocLoadResult(chapters: [], complete: false, pagesFetched: pageCount)
+            }
+            // A later page that adds nothing new is a repeated/blank page: stop instead of looping.
+            if pageCount > 1 && addedOnThisPage == 0 {
+                complete = false
+                break
+            }
+            if pageCount >= pageLimit {
+                complete = false
+                break
+            }
+
+            guard let nextURLString = resolveNextTocURL(
+                html: currentHtml,
+                baseUrl: currentURL,
+                source: source,
+                allowLabelHeuristic: collected.count >= 5
+            ), let nextURL = URL(string: nextURLString) else { break }
+
+            let nextKey = canonicalURLKey(nextURL.absoluteString)
+            if nextKey.isEmpty || nextKey == pageKey || visitedTocPages.contains(nextKey) {
+                complete = false
+                break
+            }
+            // Never treat an already-collected chapter link as another catalogue page.
+            if seenChapterURLs.contains(nextKey) { break }
+
+            do {
+                let (nextHtml, finalNextURL) = try await fetchPage(nextURL.absoluteString, currentURL.absoluteString)
+                currentHtml = nextHtml
+                currentURL = finalNextURL
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                complete = false
+                lastError = error.localizedDescription
+                break
+            }
+        }
+
+        let chapters = collected.enumerated().map { offset, chapter in
+            Chapter(index: offset, title: chapter.title, url: chapter.url)
+        }
+        return TocLoadResult(chapters: chapters, complete: complete, pagesFetched: pageCount,
+                             lastErrorDescription: lastError)
+    }
+
+    /// Backwards-compatible entry point for callers that only need the chapter list.
+    public func fetchAndParseToc(bookUrl: String, source: BookSource) async throws -> [Chapter] {
+        let result = try await fetchToc(bookUrl: bookUrl, source: source)
+        return result.chapters
+    }
+
+    // MARK: - TOC Pagination Helpers
+    private func resolveNextTocURL(html: String, baseUrl: URL, source: BookSource,
+                                   allowLabelHeuristic: Bool) -> String? {
+        guard let doc = try? SwiftSoup.parse(html, baseUrl.absoluteString) else { return nil }
+
+        // 1. Explicit Legado `nextTocUrl` rule (selector / @js / text.下一页 ...)
+        if let rule = source.ruleToc?.nextTocUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !rule.isEmpty,
+           let raw = extractValue(from: doc, rule: rule, baseUrl: baseUrl),
+           let resolved = resolveURLString(raw, base: baseUrl) {
+            return resolved
+        }
+
+        // 2. rel="next" links
+        for selector in ["a[rel=next]", "link[rel=next]"] {
+            guard let elements = try? doc.select(selector).array(), !elements.isEmpty else { continue }
+            for element in elements {
+                if let href = try? element.attr("href"), let resolved = resolveURLString(href, base: baseUrl) {
+                    return resolved
+                }
+            }
+        }
+
+        // 3. "下一页 / Next" labels, but only inside a pagination-looking container and
+        //    only once the current page already looks like a real catalogue (avoids
+        //    following unrelated page links on a book detail page).
+        guard allowLabelHeuristic else { return nil }
+        let nextLabels: Set<String> = ["下一页", "下页", "下一頁", "下頁", "next", "nextpage", "next page", "»", ">>", ">"]
+        if let anchors = try? doc.select("a[href]").array() {
+            for anchor in anchors {
+                let text = ((try? anchor.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let compact = text.replacingOccurrences(of: " ", with: "").lowercased()
+                guard nextLabels.contains(compact), isInsidePaginationContainer(anchor) else { continue }
+                if let href = try? anchor.attr("href"), let resolved = resolveURLString(href, base: baseUrl) {
+                    return resolved
+                }
+            }
+        }
+        return nil
+    }
+
+    private func isInsidePaginationContainer(_ element: Element) -> Bool {
+        var node: Element? = element
+        var depth = 0
+        while let current = node, depth < 4 {
+            let className = ((try? current.className()) ?? "").lowercased()
+            let identifier = ((try? current.attr("id")) ?? "").lowercased()
+            if className.contains("pag") || className.contains("page")
+                || identifier.contains("pag") || identifier.contains("page") {
+                return true
+            }
+            node = current.parent()
+            depth += 1
+        }
+        return false
+    }
+
+    private func resolveURLString(_ raw: String, base: URL) -> String? {
+        var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let commaOption = clean.range(of: ",{") { clean = String(clean[..<commaOption.lowerBound]) }
+        guard !clean.isEmpty, !clean.lowercased().hasPrefix("javascript"), !clean.hasPrefix("#") else { return nil }
+        if clean.lowercased().hasPrefix("http://") || clean.lowercased().hasPrefix("https://") {
+            if let hash = clean.range(of: "#") { clean = String(clean[..<hash.lowerBound]) }
+            return clean
+        }
+        return URL(string: clean, relativeTo: base)?.absoluteString
+    }
+
+    /// Normalises a URL so repeated pages / chapters are detected even if the site mixes
+    /// fragments, default ports or letter case in the host name.
+    private func canonicalURLKey(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed) else { return trimmed.lowercased() }
+        components.fragment = nil
+        if let scheme = components.scheme { components.scheme = scheme.lowercased() }
+        if let host = components.host { components.host = host.lowercased() }
+        if (components.scheme == "http" && components.port == 80)
+            || (components.scheme == "https" && components.port == 443) {
+            components.port = nil
+        }
+        var key = components.url?.absoluteString ?? trimmed
+        if key.hasSuffix("/"), key.count > 1 { key = String(key.dropLast()) }
+        return key
     }
 
     // MARK: - TOC (Table of Contents) Parsing + Smart Fallback

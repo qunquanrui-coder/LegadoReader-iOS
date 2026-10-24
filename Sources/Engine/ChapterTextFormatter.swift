@@ -129,4 +129,24 @@ public enum ChapterTextFormatter {
         
         return nil
     }
+    
+    /// Re-locates the chapter currently being read inside a refreshed or persisted TOC.
+    /// Prefers the exact content URL, then the chapter title, then clamps the old index.
+    public static func resolvedChapterIndex(in chapters: [Chapter],
+                                            preferredURL: String?,
+                                            preferredTitle: String?,
+                                            fallbackIndex: Int) -> Int {
+        guard !chapters.isEmpty else { return 0 }
+        if let rawURL = preferredURL, !rawURL.isEmpty {
+            let cleanURL = rawURL.components(separatedBy: "#").first ?? rawURL
+            if let hit = chapters.firstIndex(where: { $0.url == rawURL || $0.url == cleanURL }) {
+                return hit
+            }
+        }
+        if let title = preferredTitle, !title.isEmpty,
+           let hit = bestMatchIndex(title: title, in: chapters, nearIndex: fallbackIndex) {
+            return hit
+        }
+        return max(0, min(fallbackIndex, chapters.count - 1))
+    }
 }

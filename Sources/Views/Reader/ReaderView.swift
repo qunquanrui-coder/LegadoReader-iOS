@@ -51,6 +51,12 @@ public struct ReaderView: View {
     @State private var prefetchTask: Task<Void, Never>?
     @State private var tocLoadTask: Task<Void, Never>?
     @State private var tocLoadID = UUID()
+    @State private var tocRefreshTask: Task<Void, Never>?
+    // TTS hand-off state: chapter/book switches stop the old audio before the new chapter
+    // becomes current, then resume on the new text (keeping the previous pause state).
+    @State private var pendingTTSCarryOver = false
+    @State private var pendingTTSPaused = false
+    @State private var pendingListenStart = false
     
     // Intra-Chapter Paragraph Restoration State
     @State private var targetRestoreParagraph: Int? = nil
@@ -215,7 +221,7 @@ public struct ReaderView: View {
                         .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.45))
                         .lineLimit(1)
                     Spacer()
-                    if speech.isSpeaking {
+                    if speech.isSpeaking && ownsSpeech {
                         HStack(spacing: 4) {
                             Image(systemName: "waveform")
                             Text(speech.isPaused ? "听书已暂停" : "正在朗读 · \(speech.selectedVoice.shortName)")
@@ -298,7 +304,7 @@ public struct ReaderView: View {
             }
             
             // Floating TTS Audio Player Bar
-            if showTTSBar || speech.isSpeaking {
+            if showTTSBar || (speech.isSpeaking && ownsSpeech) {
                 VStack {
                     Spacer()
                     ttsControlOverlay
@@ -324,6 +330,10 @@ public struct ReaderView: View {
         }
         .onDisappear {
             saveProgress(force: true)
+            // Cancel any pending "start listening on the new chapter" intent: the page is gone.
+            pendingListenStart = false
+            pendingTTSCarryOver = false
+            pendingTTSPaused = false
             // Hand TTS over to the engine so it keeps reading & auto-advancing chapters after the page closes
             if speech.isSpeaking,
                let ctx = speech.context,
@@ -403,6 +413,13 @@ public struct ReaderView: View {
                 }
                 .buttonStyle(.bordered)
                 
+                if !chapters.isEmpty {
+                    Button("查看目录") {
+                        showChapterList = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+                
                 Button("切换书源") {
                     showChangeSource = true
                 }
@@ -437,7 +454,7 @@ public struct ReaderView: View {
                     }
                     
                     ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { idx, paragraph in
-                        let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == idx
+                        let isSpoken = speech.isSpeaking && ownsSpeech && speech.currentParagraphIndex == idx
                         Text(paragraph)
                             .font(.system(
                                 size: storage.readerConfig.fontSize,
@@ -524,7 +541,7 @@ public struct ReaderView: View {
                 restoreParagraphScrollIfNeeded(proxy: scrollProxy)
             }
             .onChange(of: speech.currentParagraphIndex) { newIdx in
-                if speech.isSpeaking {
+                if speech.isSpeaking && ownsSpeech {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         scrollProxy.scrollTo("para_\(newIdx)", anchor: .center)
                     }
@@ -589,7 +606,7 @@ public struct ReaderView: View {
                                 }
                                 
                                 ForEach(pageItems) { item in
-                                    let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == item.index
+                                    let isSpoken = speech.isSpeaking && ownsSpeech && speech.currentParagraphIndex == item.index
                                     Text(item.text)
                                         .font(.system(
                                             size: storage.readerConfig.fontSize,
@@ -866,7 +883,7 @@ public struct ReaderView: View {
                     }
                     
                     ForEach(items) { item in
-                        let isSpoken = speech.isSpeaking && speech.currentParagraphIndex == item.index
+                        let isSpoken = speech.isSpeaking && ownsSpeech && speech.currentParagraphIndex == item.index
                         Text(item.text)
                             .font(.system(
                                 size: storage.readerConfig.fontSize,
@@ -960,7 +977,12 @@ public struct ReaderView: View {
                 }
                 
                 Button {
-                    speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
+                    if speech.isSpeaking && ownsSpeech {
+                        speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
+                    } else {
+                        // Stopped, or another book owns playback: take over explicitly for this chapter.
+                        beginListeningHere()
+                    }
                 } label: {
                     ZStack {
                         Image(systemName: (speech.isSpeaking && !speech.isPaused) ? "pause.circle.fill" : "play.circle.fill")
@@ -1234,22 +1256,12 @@ public struct ReaderView: View {
                 }
                 Spacer()
                 Button {
-                    showHUD = false
-                    showTTSBar = true
-                    setupSpeechCallbacks(force: true)
-                    if !speech.isSpeaking {
-                        speech.startReading(
-                            paragraphs: formattedParagraphs,
-                            fromIndex: currentParagraphIndex,
-                            bookTitle: book.title,
-                            chapterTitle: currentChapter?.title
-                        )
-                    }
+                    beginListeningHere()
                 } label: {
                     VStack(spacing: 5) {
-                        Image(systemName: speech.isSpeaking ? "waveform.circle.fill" : "headphones")
+                        Image(systemName: speech.isSpeaking && ownsSpeech ? "waveform.circle.fill" : "headphones")
                             .font(.system(size: 18))
-                            .foregroundColor(speech.isSpeaking ? .indigo : .primary)
+                            .foregroundColor(speech.isSpeaking && ownsSpeech ? .indigo : .primary)
                         Text("听书").font(.system(size: 11, weight: .medium))
                     }
                 }
@@ -1307,10 +1319,57 @@ public struct ReaderView: View {
         return ctx.book.title == book.title && ctx.book.author == book.author
     }
     
+    /// Explicit "listen here" intent (听书 button / play in the floating TTS bar).
+    /// Takes ownership away from any other book or chapter before new audio is loaded.
+    private func beginListeningHere() {
+        showHUD = false
+        showTTSBar = true
+        pendingTTSCarryOver = false
+        pendingTTSPaused = false
+        guard !chapters.isEmpty else {
+            // TOC still loading: remember the intent and start as soon as the chapter exists.
+            pendingListenStart = true
+            return
+        }
+        if speech.isSpeaking {
+            let sameChapter = speech.context?.book.id == book.id
+                && speech.context?.chapterIndex == currentChapterIndex
+            if !sameChapter {
+                // Another book (or another chapter) is being read aloud: stop it first.
+                speech.stop()
+            } else {
+                setupSpeechCallbacks(force: true)
+                if speech.isPaused {
+                    speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
+                }
+                return
+            }
+        }
+        guard !formattedParagraphs.isEmpty else {
+            pendingListenStart = true
+            return
+        }
+        setupSpeechCallbacks(force: true)
+        speech.startReading(
+            paragraphs: formattedParagraphs,
+            fromIndex: max(0, min(currentParagraphIndex, formattedParagraphs.count - 1)),
+            bookTitle: book.title,
+            chapterTitle: currentChapter?.title
+        )
+        pendingListenStart = false
+    }
+    
     /// Attaches this reader page to the TTS engine. When another book is being read aloud in the
     /// background, the reader leaves it alone unless `force` is set (user tapped 听书 here).
     private func setupSpeechCallbacks(force: Bool = false) {
-        guard force || ownsSpeech else { return }
+        if !force {
+            guard ownsSpeech else { return }
+            // Same book, but the engine is further ahead in the background: stay a passive
+            // observer instead of stealing its context (the callbacks below would mis-map indices).
+            if speech.isSpeaking, let ctx = speech.context, ctx.chapterIndex != currentChapterIndex {
+                return
+            }
+        }
         if !chapters.isEmpty {
             speech.setContext(book: book, chapters: chapters, chapterIndex: currentChapterIndex)
         }
@@ -1319,6 +1378,10 @@ public struct ReaderView: View {
             chapterTitle: currentChapter?.title ?? book.title
         )
         speech.onParagraphChanged = { idx in
+            // Only the chapter that is actually being spoken may write progress. This stops
+            // stale audio from another book/chapter from corrupting the current position.
+            guard self.speech.context?.book.id == self.book.id,
+                  self.speech.context?.chapterIndex == self.currentChapterIndex else { return }
             self.currentParagraphIndex = idx
             self.saveProgress()
             let pages = self.paginatedPages
@@ -1328,6 +1391,8 @@ public struct ReaderView: View {
             }
         }
         speech.onChapterFinished = {
+            guard self.speech.context?.book.id == self.book.id,
+                  self.speech.context?.chapterIndex == self.currentChapterIndex else { return }
             if self.currentChapterIndex + 1 < self.chapters.count {
                 self.switchChapter(to: self.currentChapterIndex + 1, proxy: nil, autoContinueTTS: true)
             } else {
@@ -1338,9 +1403,14 @@ public struct ReaderView: View {
     
     private func initializeReader() {
         tocLoadTask?.cancel()
+        tocRefreshTask?.cancel()
         chapterLoadTask?.cancel()
         chapterLoadID = UUID()
         prefetchTask?.cancel()
+        activeCacheTask?.cancel()
+        pendingListenStart = false
+        pendingTTSCarryOver = false
+        pendingTTSPaused = false
         let loadID = UUID()
         tocLoadID = loadID
         let requestedBook = book
@@ -1352,51 +1422,32 @@ public struct ReaderView: View {
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         
+        // 1) Offline-first: a persisted TOC is enough to open every already-cached chapter.
+        if let cachedToc = storage.loadCachedToc(for: requestedBook) {
+            applyToc(cachedToc.chapters, consumeRelocation: true)
+            isLoading = false
+            loadCurrentChapterContent()
+            refreshTocInBackground(book: requestedBook, source: source, loadID: loadID)
+            return
+        }
+        
+        // 2) No local TOC yet: fetch it once from the network, then persist it for offline use.
         tocLoadTask = Task {
             do {
-                let parsedChapters = try await LegadoParser.shared.fetchAndParseToc(bookUrl: requestedBook.bookUrl, source: source)
+                let result = try await LegadoParser.shared.fetchToc(bookUrl: requestedBook.bookUrl, source: source)
                 try Task.checkCancellation()
                 await MainActor.run {
                     guard self.tocLoadID == loadID, self.book.bookUrl == requestedBook.bookUrl else { return }
-                    if parsedChapters.isEmpty {
+                    if result.chapters.isEmpty {
                         self.errorMessage = "当前书源未能解析出目录，请点击「切换书源」"
                         self.isLoading = false
-                    } else {
-                        self.chapters = parsedChapters
-                        // After a source switch, chapter numbering differs between sites —
-                        // re-locate the current chapter by its title in the new TOC.
-                        if let relocateTitle = self.storage.consumePendingRelocation(for: self.book) {
-                            if let matched = ChapterTextFormatter.bestMatchIndex(
-                                title: relocateTitle,
-                                in: parsedChapters,
-                                nearIndex: self.currentChapterIndex
-                            ), matched >= 0, matched < parsedChapters.count {
-                                self.currentChapterIndex = matched
-                                withAnimation {
-                                    self.restoreToastMessage = "换源成功，已定位到「\(parsedChapters[matched].title)」"
-                                }
-                            } else {
-                                self.currentChapterIndex = min(self.currentChapterIndex, parsedChapters.count - 1)
-                                withAnimation {
-                                    self.restoreToastMessage = "新书源未找到同名章节，已定位到相近位置"
-                                }
-                            }
-                            self.currentPageIndex = 0
-                            self.currentSpreadIndex = 0
-                            self.visibleParagraphIndices.removeAll()
-                            self.targetRestoreParagraph = self.currentParagraphIndex > 0 ? self.currentParagraphIndex : nil
-                            self.isRestoringPosition = self.currentParagraphIndex > 0
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                                withAnimation { self.restoreToastMessage = nil }
-                            }
-                        }
-                        if self.currentChapterIndex >= parsedChapters.count {
-                            self.currentChapterIndex = 0
-                            self.currentParagraphIndex = 0
-                            self.targetRestoreParagraph = nil
-                            self.isRestoringPosition = false
-                        }
-                        self.loadCurrentChapterContent()
+                        return
+                    }
+                    self.applyToc(result.chapters, consumeRelocation: true)
+                    self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
+                    self.loadCurrentChapterContent()
+                    if !result.complete {
+                        self.showTOCNotice("目录可能不完整（已获取 \(result.chapters.count) 章）")
                     }
                 }
             } catch is CancellationError {
@@ -1411,8 +1462,96 @@ public struct ReaderView: View {
         }
     }
     
+    /// Installs a chapter list and re-locates the chapter that was being read.
+    /// Returns true when the chapter at the current index now points at different content.
+    @discardableResult
+    private func applyToc(_ newChapters: [Chapter], consumeRelocation: Bool = false) -> Bool {
+        guard !newChapters.isEmpty else { return false }
+        let previousURL = currentChapter?.url
+        let previousTitle = currentChapter?.title
+        let previousIndex = currentChapterIndex
+        
+        chapters = newChapters
+        book.totalChapters = newChapters.count
+        
+        // Source switch: re-locate by title in the new site's chapter numbering.
+        if consumeRelocation, let relocateTitle = storage.consumePendingRelocation(for: book) {
+            let matched = ChapterTextFormatter.bestMatchIndex(title: relocateTitle, in: newChapters, nearIndex: previousIndex)
+            currentChapterIndex = matched ?? min(max(0, previousIndex), newChapters.count - 1)
+            currentPageIndex = 0
+            currentSpreadIndex = 0
+            visibleParagraphIndices.removeAll()
+            targetRestoreParagraph = currentParagraphIndex > 0 ? currentParagraphIndex : nil
+            isRestoringPosition = currentParagraphIndex > 0
+            showTOCNotice(matched != nil ? "换源成功，已定位到「\(chapters[currentChapterIndex].title)」"
+                                         : "新书源未找到同名章节，已定位到相近位置")
+            return true
+        }
+        
+        let resolved = ChapterTextFormatter.resolvedChapterIndex(
+            in: newChapters,
+            preferredURL: previousURL,
+            preferredTitle: previousTitle,
+            fallbackIndex: previousIndex
+        )
+        currentChapterIndex = resolved
+        let movedToDifferentChapter = previousURL.map { $0 != newChapters[resolved].url } ?? false
+        if movedToDifferentChapter {
+            currentPageIndex = 0
+            currentSpreadIndex = 0
+            visibleParagraphIndices.removeAll()
+            targetRestoreParagraph = nil
+            isRestoringPosition = false
+        }
+        return movedToDifferentChapter
+    }
+    
+    private func showTOCNotice(_ message: String) {
+        withAnimation { restoreToastMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+            withAnimation { self.restoreToastMessage = nil }
+        }
+    }
+    
+    /// Silently refreshes the TOC when the reader opened from the persisted snapshot.
+    /// Failures keep the offline copy and never surface an error banner.
+    private func refreshTocInBackground(book requestedBook: Book, source: BookSource, loadID: UUID) {
+        tocRefreshTask?.cancel()
+        tocRefreshTask = Task {
+            do {
+                let result = try await LegadoParser.shared.fetchToc(bookUrl: requestedBook.bookUrl, source: source)
+                try Task.checkCancellation()
+                guard !result.chapters.isEmpty else { return }
+                await MainActor.run {
+                    guard self.tocLoadID == loadID, self.book.bookUrl == requestedBook.bookUrl else { return }
+                    let chapterChanged = self.applyToc(result.chapters)
+                    self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
+                    if chapterChanged {
+                        self.loadCurrentChapterContent()
+                    } else {
+                        self.setupSpeechCallbacks()
+                    }
+                }
+            } catch {
+                // Offline / site down: keep using the cached TOC.
+            }
+        }
+    }
+    
     private func switchChapter(to newIndex: Int, proxy: ScrollViewProxy?, autoContinueTTS: Bool = false) {
         guard newIndex >= 0 && newIndex < chapters.count else { return }
+        guard newIndex != currentChapterIndex else { return }
+        // If this book is being read aloud, stop the old chapter's audio before the new
+        // chapter becomes current; otherwise stale audio would keep writing its paragraph
+        // index into the newly selected chapter. Playback resumes once the text is loaded.
+        var resumeTTS = autoContinueTTS
+        if speech.isSpeaking && ownsSpeech {
+            pendingTTSCarryOver = true
+            pendingTTSPaused = speech.isPaused
+            resumeTTS = true
+            speech.stop()
+            showTTSBar = true
+        }
         currentChapterIndex = newIndex
         currentParagraphIndex = 0
         currentPageIndex = 0
@@ -1423,7 +1562,7 @@ public struct ReaderView: View {
         if let proxy = proxy {
             proxy.scrollTo("chapterTop", anchor: .top)
         }
-        loadCurrentChapterContent(autoContinueTTS: autoContinueTTS)
+        loadCurrentChapterContent(autoContinueTTS: resumeTTS)
     }
     
     private func loadCurrentChapterContent(forceRefresh: Bool = false, autoContinueTTS: Bool = false) {
@@ -1442,15 +1581,7 @@ public struct ReaderView: View {
             self.saveProgress(force: true)
             self.setupSpeechCallbacks()
             self.prefetchNextChapter()
-            if autoContinueTTS && self.speech.isSpeaking {
-                self.speech.startReading(
-                    paragraphs: self.formattedParagraphs,
-                    fromIndex: 0,
-                    bookTitle: self.book.title,
-                    chapterTitle: chapter.title,
-                    initiallyPaused: self.speech.isPaused
-                )
-            }
+            self.resumeTTSIfNeeded(autoContinueTTS: autoContinueTTS, chapter: chapter)
             return
         }
         
@@ -1477,26 +1608,49 @@ public struct ReaderView: View {
                     self.saveProgress(force: true)
                     self.setupSpeechCallbacks()
                     self.prefetchNextChapter()
-                    if autoContinueTTS && self.speech.isSpeaking {
-                        self.speech.startReading(
-                            paragraphs: self.formattedParagraphs,
-                            fromIndex: 0,
-                            bookTitle: self.book.title,
-                            chapterTitle: chapter.title,
-                            initiallyPaused: self.speech.isPaused
-                        )
-                    }
+                    self.resumeTTSIfNeeded(autoContinueTTS: autoContinueTTS, chapter: chapter)
                 }
             } catch is CancellationError {
                 return
             } catch {
                 await MainActor.run {
                     guard self.chapterLoadID == loadID else { return }
+                    self.pendingTTSCarryOver = false
+                    self.pendingTTSPaused = false
+                    self.pendingListenStart = false
                     self.errorMessage = "正文抓取失败: \(error.localizedDescription)"
                     self.isLoading = false
                 }
             }
         }
+    }
+    
+    /// Restarts TTS after a chapter switch (or after an explicit 听书 tap that happened
+    /// before the chapter text existed). Never starts playback the user did not ask for.
+    private func resumeTTSIfNeeded(autoContinueTTS: Bool, chapter: Chapter) {
+        if pendingListenStart {
+            pendingListenStart = false
+            speech.stop()
+            setupSpeechCallbacks(force: true)
+            guard !formattedParagraphs.isEmpty else { return }
+            speech.startReading(paragraphs: formattedParagraphs,
+                                fromIndex: max(0, min(currentParagraphIndex, formattedParagraphs.count - 1)),
+                                bookTitle: book.title, chapterTitle: chapter.title)
+            return
+        }
+        guard autoContinueTTS, !formattedParagraphs.isEmpty else {
+            pendingTTSCarryOver = false
+            pendingTTSPaused = false
+            return
+        }
+        let wasPaused = pendingTTSPaused
+        pendingTTSCarryOver = false
+        pendingTTSPaused = false
+        speech.startReading(paragraphs: formattedParagraphs,
+                            fromIndex: 0,
+                            bookTitle: book.title,
+                            chapterTitle: chapter.title,
+                            initiallyPaused: wasPaused)
     }
     
     private func restorePageFromParagraphIfNeeded() {

@@ -3,6 +3,7 @@ name: Build iOS IPA
 on:
   push:
     branches: [ "main", "master", "fix/**" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -95,3 +96,60 @@ jobs:
             LegadoReader-unsigned.ipa
             LegadoReader-iPhoneDuo-unsigned.ipa
           retention-days: 30
+
+  release:
+    name: Publish GitHub Release (tag only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download packaged IPAs
+        uses: actions/download-artifact@v4
+        with:
+          name: LegadoReader-unsigned-ipa
+          path: release
+
+      - name: Verify IPA version, edition and archive integrity
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib, zipfile
+          version = os.environ['TAG_NAME'].lstrip('v')
+          expected = {'LegadoReader-unsigned.ipa': False, 'LegadoReader-iPhoneDuo-unsigned.ipa': True}
+          for name, duo in expected.items():
+              path = pathlib.Path('release') / name
+              assert path.is_file() and path.stat().st_size > 1_000_000, name
+              with zipfile.ZipFile(path) as archive:
+                  assert archive.testzip() is None, name
+                  info = plistlib.loads(archive.read('Payload/LegadoReader.app/Info.plist'))
+                  assert info['CFBundleShortVersionString'] == version, (name, info['CFBundleShortVersionString'])
+                  assert info['IS_IPHONE_DUO_EDITION'] == duo, (name, info['IS_IPHONE_DUO_EDITION'])
+                  print(name, info['CFBundleShortVersionString'], info['CFBundleVersion'])
+          PY
+
+      - name: Publish release with both IPAs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "风读 $GITHUB_REF_NAME · iPhone & iPhone Duo" \
+            --notes-file RELEASE_NOTES.md \
+            --latest \
+            release/LegadoReader-unsigned.ipa \
+            release/LegadoReader-iPhoneDuo-unsigned.ipa
+
+      - name: Verify public release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isLatest,assets \
+            --jq '.tagName, .isDraft, .isLatest, (.assets[] | .name + " " + (.size|tostring))'
+

@@ -89,6 +89,8 @@ public struct RuleToc: Codable, Equatable, Hashable {
     public var chapterList: String?
     public var chapterName: String?
     public var chapterUrl: String?
+    /// Legado's "next catalogue page" rule (selector, `@js:` script or `text.下一页` style).
+    public var nextTocUrl: String? = nil
 }
 
 public struct RuleContent: Codable, Equatable, Hashable {

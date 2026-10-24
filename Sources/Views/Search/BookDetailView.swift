@@ -413,21 +413,33 @@ public struct BookDetailView: View {
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         
+        // Offline-first: the persisted TOC also powers 目录预览 and 全本缓存 without network.
+        if let cachedToc = storage.loadCachedToc(for: book) {
+            chapters = cachedToc.chapters
+            book.totalChapters = cachedToc.chapters.count
+            isLoadingChapters = false
+        }
+        
         Task {
             do {
-                let parsedChapters = try await LegadoParser.shared.fetchAndParseToc(bookUrl: book.bookUrl, source: source)
+                let result = try await LegadoParser.shared.fetchToc(bookUrl: book.bookUrl, source: source)
                 await MainActor.run {
-                    if parsedChapters.isEmpty {
-                        self.errorMessage = "当前站点未返回有效目录，建议点击「一键换源」切换其他书源"
+                    if result.chapters.isEmpty {
+                        if self.chapters.isEmpty {
+                            self.errorMessage = "当前站点未返回有效目录，建议点击「一键换源」切换其他书源"
+                        }
                     } else {
-                        self.chapters = parsedChapters
-                        self.book.totalChapters = parsedChapters.count
+                        self.chapters = result.chapters
+                        self.book.totalChapters = result.chapters.count
+                        self.storage.saveCachedToc(for: self.book, chapters: result.chapters, complete: result.complete)
                     }
                     self.isLoadingChapters = false
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "目录拉取超时或站点受限，请点击「一键换源」切换书源"
+                    if self.chapters.isEmpty {
+                        self.errorMessage = "目录拉取超时或站点受限，请点击「一键换源」切换书源"
+                    }
                     self.isLoadingChapters = false
                 }
             }
