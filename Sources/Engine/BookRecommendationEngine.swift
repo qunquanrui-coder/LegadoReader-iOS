@@ -10,7 +10,8 @@ public struct RecommendedBook: Identifiable, Equatable, Hashable {
     public let intro: String
 }
 
-public enum NovelCategory: String, CaseIterable {
+public enum NovelCategory: String, CaseIterable, Identifiable {
+    public var id: String { rawValue }
     case trending = "巅峰热榜"
     case xianxia = "仙侠修真"
     case xuanhuan = "玄幻奇幻"

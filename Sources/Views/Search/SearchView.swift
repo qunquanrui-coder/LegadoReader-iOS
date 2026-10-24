@@ -11,12 +11,12 @@ public struct SearchView: View {
     @State private var searchProgress = ""
     
     // Real-time search suggestions (Auto-complete)
-    @State private var suggestions: [SearchSuggestionItem] = []
+    @State private var suggestions: [SearchSuggestion] = []
     @State private var showSuggestions = false
     @State private var suggestionTask: Task<Void, Never>? = nil
     
     // Popular novel recommendation category
-    @State private var selectedCategory: NovelCategory = .topHot
+    @State private var selectedCategory: NovelCategory = .trending
     
     // Keyboard focus state
     @FocusState private var isSearchFieldFocused: Bool
@@ -342,7 +342,7 @@ public struct SearchView: View {
                                     }
                                 } label: {
                                     HStack(spacing: 5) {
-                                        Image(systemName: category.icon)
+                                        Image(systemName: category.iconName)
                                             .font(.system(size: 12, weight: .semibold))
                                         Text(category.rawValue)
                                             .font(.system(size: 13, weight: .semibold))
@@ -363,7 +363,7 @@ public struct SearchView: View {
                     }
                     
                     // Ranked Novel List for Selected Category
-                    let rankedBooks = BookRecommendationEngine.shared.recommendations(for: selectedCategory)
+                    let rankedBooks = BookRecommendationEngine.shared.books(for: selectedCategory)
                     LazyVStack(spacing: 12) {
                         ForEach(Array(rankedBooks.enumerated()), id: \.element.id) { index, item in
                             RecommendedNovelRow(rank: index + 1, novel: item) {
@@ -468,7 +468,7 @@ public struct SearchView: View {
         guard !kw.isEmpty else { return books }
         
         // Known canonical author for the searched novel (if in our curated database)
-        let canonicalAuthor = BookRecommendationEngine.shared.allRecommendations
+        let canonicalAuthor = BookRecommendationEngine.shared.curatedBooks
             .first(where: { normalizeTitle($0.title) == kw })?.author
         
         return books.sorted { a, b in
@@ -603,7 +603,7 @@ public struct SearchView: View {
 // MARK: - Recommended Novel Leaderboard Card
 struct RecommendedNovelRow: View {
     let rank: Int
-    let novel: RecommendedNovel
+    let novel: RecommendedBook
     let onSelect: () -> Void
     
     private var rankBadgeColors: [Color] {

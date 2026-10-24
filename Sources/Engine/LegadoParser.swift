@@ -435,7 +435,7 @@ public class LegadoParser {
                 if isFirstChapter && !firstIsAlreadyCh1 {
                     let trimmed = Array(chapters[idx...])
                     chapters = trimmed.enumerated().map { newIdx, ch in
-                        Chapter(id: ch.id, index: newIdx, title: ch.title, url: ch.url, isCached: ch.isCached)
+                        Chapter(index: newIdx, title: ch.title, url: ch.url, isCached: ch.isCached)
                     }
                     break
                 }

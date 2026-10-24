@@ -93,4 +93,5 @@ public struct RuleToc: Codable, Equatable, Hashable {
 public struct RuleContent: Codable, Equatable, Hashable {
     public var content: String?
     public var nextContentUrl: String?
+    public var replaceRegex: String?
 }
