@@ -95,8 +95,18 @@ public final class ChapterContentLoader {
     private func nextPage(in doc: Document, baseURL: URL, firstURL: URL,
                           source: BookSource, nextChapterURL: String?) throws -> String? {
         let pageText = (try? doc.body()?.text()) ?? ""
-        let unfinished = pageText.range(of: "本章未完|本章未完結|点击下一页|點擊下一頁|下一页继续|下一頁繼續",
-                                       options: .regularExpression) != nil
+        let pagingElements = (try? doc.select("h1, title, .pagination, .pager, .pagebar").array()) ?? []
+        let counterShowsMore = pagingElements.contains { element in
+            let value = (try? element.text()) ?? ""
+            guard let expression = try? NSRegularExpression(pattern: "(\\d+)\\s*[/／]\\s*(\\d+)"),
+                  let match = expression.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+                  let currentRange = Range(match.range(at: 1), in: value),
+                  let totalRange = Range(match.range(at: 2), in: value),
+                  let current = Int(value[currentRange]), let total = Int(value[totalRange]) else { return false }
+            return current < total
+        }
+        let unfinished = counterShowsMore || pageText.range(of: "本章未完|本章未完結|点击下一页|點擊下一頁|下一页继续|下一頁繼續",
+                                                           options: .regularExpression) != nil
         let anchors = (try? doc.select("a[href]").array()) ?? []
         var candidate: String?
         var fromRule = false
@@ -188,12 +198,12 @@ public final class ChapterContentLoader {
     }
 
     private func chapterStem(_ url: URL) -> String {
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: true)
-        components?.fragment = nil
-        components?.queryItems = components?.queryItems?.filter { !["page", "p", "pageno"].contains($0.name.lowercased()) }
-        if components?.queryItems?.isEmpty == true { components?.queryItems = nil }
-        components?.path = url.path.replacingOccurrences(of: "[_-]\\d+(?=\\.[A-Za-z]+$)", with: "", options: .regularExpression)
-        return components?.string ?? url.absoluteString
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return url.absoluteString }
+        components.fragment = nil
+        let filteredQuery = components.queryItems?.filter { !["page", "p", "pageno"].contains($0.name.lowercased()) }
+        components.queryItems = filteredQuery?.isEmpty == true ? nil : filteredQuery
+        components.path = url.path.replacingOccurrences(of: "[_-]\\d+(?=\\.[A-Za-z]+$)", with: "", options: .regularExpression)
+        return components.string ?? url.absoluteString
     }
 
     private func canonicalURL(_ value: String) -> String {

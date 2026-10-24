@@ -11,6 +11,7 @@ jobs:
   build:
     name: Build Unsigned IPAs (iPhone & iPhone Duo)
     runs-on: macos-15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository

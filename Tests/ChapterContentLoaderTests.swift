@@ -134,4 +134,27 @@ final class ChapterContentLoaderTests: XCTestCase {
         do { _ = try await task.value; XCTFail("Cancelled requests must not return content") }
         catch is CancellationError { }
     }
+
+    func testPageCounterWithoutContinuationLinkIsIncomplete() async throws {
+        let pages = FixturePages([first: page("第一页正文。", title: "第一章 测试（1/2）")])
+        do {
+            _ = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
+            XCTFail("A page counter must not be mistaken for a complete chapter")
+        } catch ChapterLoadingError.ambiguousNextPage { }
+    }
+
+    func testEquivalentArabicAndChineseChapterNumbersAreAccepted() async throws {
+        let pages = FixturePages([first: page("第一部分。", next: second),
+                                  second: page("最后一部分。", title: "第1章 测试（2/2）")])
+        let result = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
+        XCTAssertEqual(result.pageCount, 2)
+        XCTAssertTrue(result.text.hasSuffix("最后一部分。"))
+    }
+
+    func testDisabledNextPageAtChapterEndDoesNotLoop() async throws {
+        let html = page("完整章尾。") + "<a class='next' href='#' aria-disabled='true'>下一页</a>"
+        let pages = FixturePages([first: html])
+        let result = try await loader(pages).load(chapter: chapter(), source: source(), referer: nil)
+        XCTAssertEqual(result.pageCount, 1)
+    }
 }
