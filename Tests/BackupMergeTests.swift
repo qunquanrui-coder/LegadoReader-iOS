@@ -64,7 +64,7 @@ final class BackupMergeTests: XCTestCase {
     func testEqualTimestampsUseHigherChapterIndex() {
         let stamp = Date()
         let local = book(chapter: 100, readAt: stamp)
-        let backup = book(chapter: 120, readAt: stamp)
+        let backup = book(chapter: 120, paragraph: 2, readAt: stamp)
         let localKey = key(local)
 
         let result = StorageManager.mergeBackupState(

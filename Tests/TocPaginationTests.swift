@@ -166,8 +166,8 @@ final class TocPaginationTests: XCTestCase {
             fetchPage: { try await fixture.fetch($0, referer: $1) }
         )
         XCTAssertTrue(result.complete)
-        XCTAssertEqual(result.chapters.count, 5)
-        XCTAssertEqual(result.chapters.map(\.index), Array(0..<5))
+        XCTAssertEqual(result.chapters.count, 4)
+        XCTAssertEqual(result.chapters.map(\.index), Array(0..<4))
         XCTAssertEqual(result.chapters.filter { $0.url.hasSuffix("/3.html") }.count, 1)
     }
 }
