@@ -33,3 +33,24 @@ targets:
         ENABLE_BITCODE: NO
         MARKETING_VERSION: "3.3.0"
         CURRENT_PROJECT_VERSION: "34"
+  LegadoReaderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: LegadoReader
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  LegadoReader:
+    build:
+      targets:
+        LegadoReader: all
+    test:
+      targets:
+        - LegadoReaderTests
+

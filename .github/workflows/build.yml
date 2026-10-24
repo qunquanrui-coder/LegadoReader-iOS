@@ -25,6 +25,25 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen generate
 
+      - name: Test Chapter Integrity on iOS Simulator
+        run: |
+          SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime, devices in d["devices"].items() if "iOS" in runtime for x in devices if x["name"].startswith("iPhone")))')
+          xcodebuild test \
+            -project LegadoReader.xcodeproj \
+            -scheme LegadoReader \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath ./TestDerivedData \
+            -resultBundlePath ./TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chapter-integrity-test-results
+          path: TestResults.xcresult
+          retention-days: 7
+
       - name: Build Application with xcodebuild
         run: |
           xcodebuild clean build \
@@ -74,3 +93,4 @@ jobs:
             LegadoReader-unsigned.ipa
             LegadoReader-iPhoneDuo-unsigned.ipa
           retention-days: 30
+
