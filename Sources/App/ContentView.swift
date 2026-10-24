@@ -12,19 +12,20 @@ public struct ContentView: View {
             
             SearchView()
                 .tabItem {
-                    Label("搜索", systemImage: "magnifyingglass")
+                    Label("探索", systemImage: "sparkle.magnifyingglass")
                 }
             
             SourceManagerView()
                 .tabItem {
-                    Label("书源", systemImage: "network")
+                    Label("书源", systemImage: "globe.asia.australia.fill")
                 }
             
             SettingsView()
                 .tabItem {
-                    Label("设置", systemImage: "gearshape.fill")
+                    Label("我的", systemImage: "person.crop.circle.fill")
                 }
         }
+        .tint(.indigo)
     }
 }
 
@@ -36,64 +37,102 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("缓存管理") {
+                Section {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.orange, Color.indigo],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 58, height: 58)
+                            Image(systemName: "book.pages.fill")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("风读小说 · PureRead")
+                                .font(.system(size: 18, weight: .bold, design: .serif))
+                            Text("v2.0.0 · 旗舰重制版")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+                
+                Section("阅读偏好") {
+                    Picker("默认背景主题", selection: Binding(
+                        get: { storage.readerConfig.theme },
+                        set: { val in
+                            storage.readerConfig.theme = val
+                            storage.saveConfig()
+                        }
+                    )) {
+                        ForEach(ReaderBackgroundTheme.allCases, id: \.self) { t in
+                            Text(t.rawValue).tag(t)
+                        }
+                    }
+                    
+                    Picker("默认字体排版", selection: Binding(
+                        get: { storage.readerConfig.fontDesign },
+                        set: { val in
+                            storage.readerConfig.fontDesign = val
+                            storage.saveConfig()
+                        }
+                    )) {
+                        ForEach(ReaderFontDesign.allCases, id: \.self) { d in
+                            Text(d.rawValue).tag(d)
+                        }
+                    }
+                }
+                
+                Section("存储与缓存") {
                     HStack {
-                        Text("离线章节缓存")
+                        Label("离线章节缓存", systemImage: "internaldrive")
                         Spacer()
                         Text(cacheSizeStr)
                             .foregroundColor(.secondary)
                     }
                     
-                    Button("清空离线小说缓存", role: .destructive) {
+                    Button(role: .destructive) {
                         showClearAlert = true
+                    } label: {
+                        Label("清理离线章节缓存", systemImage: "trash")
                     }
                 }
                 
-                Section("规则与书源") {
-                    Button("重置并载入预置默认书源") {
-                        storage.loadDefaultSources()
-                    }
-                    
+                Section("书源引擎") {
                     HStack {
-                        Text("当前已载入书源")
+                        Label("已加载有效书源", systemImage: "network")
                         Spacer()
                         Text("\(storage.bookSources.count) 个")
                             .foregroundColor(.secondary)
                     }
-                }
-                
-                Section("关于软件") {
-                    HStack {
-                        Text("应用名称")
-                        Spacer()
-                        Text("风读 (LegadoReader)")
-                            .foregroundColor(.secondary)
-                    }
-                    HStack {
-                        Text("版本")
-                        Spacer()
-                        Text("1.0.0 (Native SwiftUI)")
-                            .foregroundColor(.secondary)
-                    }
-                    HStack {
-                        Text("书源规范")
-                        Spacer()
-                        Text("Legado 3.0 标准兼容")
-                            .foregroundColor(.secondary)
+                    
+                    Button {
+                        storage.loadDefaultSources()
+                    } label: {
+                        Label("恢复内置 20 个实测高速书源", systemImage: "arrow.counterclockwise")
+                            .foregroundColor(.indigo)
                     }
                 }
             }
-            .navigationTitle("系统设置")
+            .navigationTitle("关于与设置")
             .onAppear {
                 calculateCacheSize()
             }
-            .alert("确认清空缓存？", isPresented: $showClearAlert) {
-                Button("清空", role: .destructive) {
+            .alert("确认清理离线缓存？", isPresented: $showClearAlert) {
+                Button("立即清理", role: .destructive) {
                     clearCache()
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("清空后已缓存的章节需要重新联网加载。")
+                Text("书架记录与阅读进度将保留，仅清理已下载的章节文本。")
             }
         }
     }

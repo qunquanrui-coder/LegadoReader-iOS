@@ -5,145 +5,256 @@ public class LegadoParser {
     public static let shared = LegadoParser()
     private init() {}
     
-    // MARK: - Convert Legado Jsoup Rule to CSS Selector & Attribute
-    private func parseLegadoRule(_ rawRule: String) -> (cssSelector: String, attribute: String, regexPattern: String?, regexReplacement: String) {
-        // 1. Split regex replacement: rule##pattern##replacement
-        let regexParts = rawRule.components(separatedBy: "##")
-        var cleanRule = regexParts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        let regexPattern: String? = regexParts.count > 1 && !regexParts[1].isEmpty ? regexParts[1] : nil
-        let regexReplacement: String = regexParts.count > 2 ? regexParts[2] : ""
+    private let knownAttributes: Set<String> = [
+        "text", "text()", "textnodes", "owntext", "html", "html()",
+        "href", "src", "content", "data-original", "data-src", "title", "value", "alt"
+    ]
+    
+    // MARK: - Step-by-Step Legado Rule Selector
+    public func stepSelect(from roots: [Element], chainRule: String) -> [Element] {
+        var clean = chainRule.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.isEmpty { return roots }
         
-        if cleanRule.hasPrefix("@css:") {
-            cleanRule = String(cleanRule.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-        } else if cleanRule.hasPrefix("@@") {
-            cleanRule = String(cleanRule.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        if clean.hasPrefix("@css:") {
+            clean = String(clean.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        } else if clean.hasPrefix("@@") {
+            clean = String(clean.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        }
+        if clean.hasPrefix("-") || clean.hasPrefix("+") {
+            clean = String(clean.dropFirst()).trimmingCharacters(in: .whitespaces)
         }
         
-        let tokens = cleanRule.components(separatedBy: "@")
-        var cssParts: [String] = []
-        var finalAttr = "text"
+        let tokens = clean.components(separatedBy: "@")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         
-        let knownAttributes: Set<String> = ["text", "text()", "textnodes", "ownText", "html", "html()", "href", "src", "content", "data-original", "title"]
+        var current = roots
         
-        for (idx, token) in tokens.enumerated() {
-            let t = token.trimmingCharacters(in: .whitespaces)
-            if t.isEmpty { continue }
+        for rawToken in tokens {
+            var token = rawToken
+            var pickIndex: Int? = nil
+            var excludeIndex: Int? = nil
+            var reverseList = false
             
-            if idx == tokens.count - 1 && knownAttributes.contains(t.lowercased()) {
-                finalAttr = t
-                continue
+            // Check reverse slice like [-1:0]
+            if token.contains("[-1:0]") {
+                reverseList = true
+            }
+            if let bracketRange = token.range(of: "[") {
+                let inside = String(token[bracketRange.lowerBound...])
+                if inside.contains(":") {
+                    token = String(token[..<bracketRange.lowerBound])
+                }
             }
             
-            cssParts.append(convertTokenToCSS(t))
-        }
-        
-        let cssSelector = cssParts.joined(separator: " ")
-        return (cssSelector, finalAttr, regexPattern, regexReplacement)
-    }
-    
-    private func convertTokenToCSS(_ token: String) -> String {
-        // Handle Legado syntax like class.bookbox.0, id.list, tag.a.0, children
-        if token == "children" {
-            return "> *"
-        }
-        
-        var working = token
-        // Strip trailing index like .0 or .-1 or !0
-        if let bangIdx = working.range(of: "!") {
-            working = String(working[..<bangIdx.lowerBound])
-        }
-        
-        let dotParts = working.components(separatedBy: ".")
-        if dotParts.count >= 2 {
-            let prefix = dotParts[0]
-            if prefix == "class" {
-                let className = dotParts[1].replacingOccurrences(of: " ", with: ".")
-                return ".\(className)"
-            } else if prefix == "id" {
-                return "#\(dotParts[1])"
-            } else if prefix == "tag" {
-                return dotParts[1]
+            // Check exclude index like !0 or .-1 or !-1
+            if let bangRange = token.range(of: "!") {
+                let exclStr = String(token[bangRange.upperBound...]).replacingOccurrences(of: ".", with: "")
+                excludeIndex = Int(exclStr)
+                token = String(token[..<bangRange.lowerBound])
+                if token.hasSuffix(".") {
+                    token = String(token.dropLast())
+                }
+            }
+            
+            // Check trailing index like .0, .1, .-1
+            let dotParts = token.components(separatedBy: ".")
+            if dotParts.count >= 2, let idx = Int(dotParts.last!) {
+                pickIndex = idx
+                token = dotParts.dropLast().joined(separator: ".")
+            }
+            
+            let css = convertSingleTokenToCSS(token)
+            var nextElements: [Element] = []
+            
+            for el in current {
+                if css.isEmpty {
+                    nextElements.append(el)
+                } else if let found = try? el.select(css) {
+                    var arr = found.array()
+                    // In Jsoup/SwiftSoup, el.select(css) includes `el` itself at index 0 if `el` matches `css`.
+                    // Remove self if searching inside a container for child elements of same type.
+                    if arr.count > 1 && arr.first === el {
+                        arr.removeFirst()
+                    }
+                    nextElements.append(contentsOf: arr)
+                }
+            }
+            
+            if reverseList {
+                nextElements.reverse()
+            }
+            
+            if let excl = excludeIndex, !nextElements.isEmpty {
+                let realIdx = excl >= 0 ? excl : (nextElements.count + excl)
+                if realIdx >= 0 && realIdx < nextElements.count {
+                    nextElements.remove(at: realIdx)
+                }
+            }
+            
+            if let pick = pickIndex {
+                let realIdx = pick >= 0 ? pick : (nextElements.count + pick)
+                if realIdx >= 0 && realIdx < nextElements.count {
+                    nextElements = [nextElements[realIdx]]
+                } else {
+                    nextElements = []
+                }
+            }
+            
+            current = nextElements
+            if current.isEmpty {
+                break
             }
         }
-        return working
+        
+        return current
     }
     
-    // MARK: - Rule Extraction Helper
+    private func convertSingleTokenToCSS(_ token: String) -> String {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        if trimmed == "children" { return "> *" }
+        
+        // Handle XPath meta tags commonly used in XIU2: //meta[@property='og:novel:book_name']
+        if trimmed.hasPrefix("//meta[") {
+            if let propRange = trimmed.range(of: "@property='"),
+               let endQuote = trimmed[propRange.upperBound...].firstIndex(of: "'") {
+                let propName = String(trimmed[propRange.upperBound..<endQuote])
+                return "meta[property=\"\(propName)\"]"
+            }
+        }
+        
+        let parts = trimmed.components(separatedBy: ".")
+        if parts.count >= 2 {
+            let prefix = parts[0]
+            let rest = parts.dropFirst().joined(separator: ".")
+            switch prefix {
+            case "class":
+                let classes = rest.components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: ".")
+                return ".\(classes)"
+            case "id":
+                return "#\(rest)"
+            case "tag":
+                return rest
+            case "text":
+                return "a:contains(\(rest))"
+            default:
+                break
+            }
+        }
+        return trimmed
+    }
+    
+    // MARK: - Extract String Value from Element
     public func extractValue(from element: Element, rule: String?, baseUrl: URL) -> String? {
         guard let rule = rule, !rule.isEmpty else { return nil }
         
-        // Support fallback alternatives separated by "||"
-        let alternatives = rule.components(separatedBy: "||")
-        for alt in alternatives {
-            if let val = extractSingleRule(from: element, rule: alt, baseUrl: baseUrl), !val.isEmpty {
-                return val
+        // Handle && (combine multiple rules) or || (fallback alternatives)
+        let orAlternatives = rule.components(separatedBy: "||")
+        for alt in orAlternatives {
+            let andParts = alt.components(separatedBy: "&&")
+            var combined: [String] = []
+            for part in andParts {
+                if let val = extractSingleRule(from: element, rawRule: part, baseUrl: baseUrl), !val.isEmpty {
+                    combined.append(val)
+                }
+            }
+            if !combined.isEmpty {
+                return combined.joined(separator: " · ")
             }
         }
         return nil
     }
     
-    private func extractSingleRule(from element: Element, rule: String, baseUrl: URL) -> String? {
-        let parsed = parseLegadoRule(rule)
+    private func extractSingleRule(from element: Element, rawRule: String, baseUrl: URL) -> String? {
+        // Strip @js: or <js> blocks from rule
+        var cleanRaw = rawRule
+        if let jsRange = cleanRaw.range(of: "@js:", options: .caseInsensitive) {
+            cleanRaw = String(cleanRaw[..<jsRange.lowerBound])
+        }
+        if let jsTagRange = cleanRaw.range(of: "<js>", options: .caseInsensitive) {
+            cleanRaw = String(cleanRaw[..<jsTagRange.lowerBound])
+        }
         
-        do {
-            let targetElement: Element
-            if parsed.cssSelector.isEmpty {
-                targetElement = element
-            } else {
-                guard let found = try element.select(parsed.cssSelector).first() else {
-                    return nil
-                }
-                targetElement = found
-            }
-            
-            var result: String = ""
-            switch parsed.attribute.lowercased() {
+        let regexParts = cleanRaw.components(separatedBy: "##")
+        var selectorPart = regexParts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let regexPattern: String? = regexParts.count > 1 && !regexParts[1].isEmpty ? regexParts[1] : nil
+        let regexReplacement: String = regexParts.count > 2 ? regexParts[2] : ""
+        
+        // Handle XPath attribute suffix like /@content or /@href or /text()
+        var attribute = "text"
+        if selectorPart.hasSuffix("/@content") {
+            selectorPart = String(selectorPart.dropLast(9))
+            attribute = "content"
+        } else if selectorPart.hasSuffix("/@href") {
+            selectorPart = String(selectorPart.dropLast(6))
+            attribute = "href"
+        } else if selectorPart.hasSuffix("/text()") {
+            selectorPart = String(selectorPart.dropLast(7))
+            attribute = "text"
+        }
+        
+        var tokens = selectorPart.components(separatedBy: "@")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        if let last = tokens.last, knownAttributes.contains(last.lowercased()) {
+            attribute = last.lowercased()
+            tokens.removeLast()
+        }
+        
+        let targetElements: [Element]
+        if tokens.isEmpty {
+            targetElements = [element]
+        } else {
+            targetElements = stepSelect(from: [element], chainRule: tokens.joined(separator: "@"))
+        }
+        
+        guard !targetElements.isEmpty else { return nil }
+        
+        let isUrlAttr = (attribute == "href" || attribute == "src" || attribute == "data-original" || attribute == "data-src")
+        var extractedValues: [String] = []
+        
+        for el in targetElements {
+            var val: String?
+            switch attribute {
             case "text", "text()", "textnodes", "owntext":
-                result = try targetElement.text()
+                val = try? el.text()
             case "html", "html()":
-                result = try targetElement.html()
+                val = try? el.html()
             default:
-                result = try targetElement.attr(parsed.attribute)
+                val = try? el.attr(attribute)
             }
-            
-            // Apply regex replacement if present
-            if let pattern = parsed.regexPattern {
-                result = result.replacingOccurrences(of: pattern, with: parsed.regexReplacement, options: .regularExpression)
+            if let v = val?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty {
+                extractedValues.append(v)
+                if isUrlAttr { break } // Only need first URL for href/src
             }
-            
-            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            // Auto resolve relative URLs for href, src, content
-            let attrLower = parsed.attribute.lowercased()
-            if attrLower == "href" || attrLower == "src" || attrLower == "data-original" || result.hasPrefix("/") {
-                if !result.isEmpty, !result.lowercased().hasPrefix("http") {
-                    if let resolved = URL(string: result, relativeTo: baseUrl)?.absoluteString {
-                        return resolved
-                    }
+        }
+        
+        guard !extractedValues.isEmpty else { return nil }
+        var result = extractedValues.joined(separator: "\n")
+        
+        if let pattern = regexPattern {
+            result = result.replacingOccurrences(of: pattern, with: regexReplacement, options: .regularExpression)
+        }
+        
+        // Strip Legado trailing options like ,{'webView':true}
+        if let commaOpt = result.range(of: ",{") {
+            result = String(result[..<commaOpt.lowerBound])
+        }
+        
+        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.isEmpty { return nil }
+        
+        if isUrlAttr || result.hasPrefix("/") {
+            if !result.lowercased().hasPrefix("http") {
+                if let resolved = URL(string: result, relativeTo: baseUrl)?.absoluteString {
+                    return resolved
                 }
             }
-            
-            return result.isEmpty ? nil : result
-        } catch {
-            return nil
         }
-    }
-    
-    private func selectElements(in doc: Document, rule: String) -> Elements? {
-        let alternatives = rule.components(separatedBy: "||")
-        for alt in alternatives {
-            var cleanAlt = alt.trimmingCharacters(in: .whitespacesAndNewlines)
-            if cleanAlt.hasPrefix("-") || cleanAlt.hasPrefix("+") {
-                cleanAlt = String(cleanAlt.dropFirst())
-            }
-            let parsed = parseLegadoRule(cleanAlt)
-            if !parsed.cssSelector.isEmpty,
-               let els = try? doc.select(parsed.cssSelector),
-               !els.isEmpty() {
-                return els
-            }
-        }
-        return nil
+        
+        return result
     }
     
     // MARK: - Search Parsing
@@ -151,31 +262,47 @@ public class LegadoParser {
         let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
         guard let ruleSearch = source.ruleSearch,
               let listRule = ruleSearch.bookList,
-              !listRule.isEmpty,
-              let elements = selectElements(in: doc, rule: listRule) else {
+              !listRule.isEmpty else {
             return []
         }
         
+        var elements: [Element] = []
+        for alt in listRule.components(separatedBy: "||") {
+            let found = stepSelect(from: [doc], chainRule: alt)
+            if !found.isEmpty {
+                elements = found
+                break
+            }
+        }
+        
         var books: [Book] = []
+        let cleanSourceUrl = source.bookSourceUrl.components(separatedBy: "#").first ?? source.bookSourceUrl
+        
         for el in elements {
             let name = extractValue(from: el, rule: ruleSearch.name, baseUrl: baseUrl) ?? ""
             if name.isEmpty { continue }
             
-            let author = extractValue(from: el, rule: ruleSearch.author, baseUrl: baseUrl) ?? "佚名"
+            let author = (extractValue(from: el, rule: ruleSearch.author, baseUrl: baseUrl) ?? "佚名")
+                .replacingOccurrences(of: "作者：", with: "")
+                .replacingOccurrences(of: "作者:", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let intro = extractValue(from: el, rule: ruleSearch.intro, baseUrl: baseUrl)
             let coverUrl = extractValue(from: el, rule: ruleSearch.coverUrl, baseUrl: baseUrl)
             let lastChapter = extractValue(from: el, rule: ruleSearch.lastChapter, baseUrl: baseUrl)
-            let bookUrl = extractValue(from: el, rule: ruleSearch.bookUrl ?? "a@href", baseUrl: baseUrl) ?? baseUrl.absoluteString
+            
+            guard let bookUrl = extractValue(from: el, rule: ruleSearch.bookUrl ?? "tag.a.0@href||a@href", baseUrl: baseUrl) else {
+                continue
+            }
             
             let book = Book(
                 title: name,
-                author: author,
+                author: author.isEmpty ? "佚名" : author,
                 coverUrl: coverUrl,
                 intro: intro,
                 latestChapter: lastChapter,
                 sourceUrl: source.bookSourceUrl,
                 sourceName: source.bookSourceName,
-                bookUrl: bookUrl
+                bookUrl: bookUrl.hasPrefix("http") ? bookUrl : (URL(string: bookUrl, relativeTo: URL(string: cleanSourceUrl))?.absoluteString ?? bookUrl)
             )
             books.append(book)
         }
@@ -183,66 +310,161 @@ public class LegadoParser {
         return books
     }
     
-    // MARK: - TOC (Table of Contents) Parsing
-    public func parseToc(html: String, baseUrl: URL, source: BookSource) throws -> [Chapter] {
-        let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
-        let listRule = source.ruleToc?.chapterList ?? "#list dd a||.listmain dd a||#chapterlist a"
-        guard let elements = selectElements(in: doc, rule: listRule) else {
-            return []
+    // MARK: - Resolve Separate TOC URL if Present on Book Info Page
+    public func resolveTocUrl(html: String, baseUrl: URL, source: BookSource) -> String? {
+        guard let tocRule = source.ruleBookInfo?.tocUrl, !tocRule.isEmpty else {
+            return nil
+        }
+        if tocRule.contains("@js:") || tocRule.contains("<js>") {
+            // Common pattern: baseUrl.replace('/txt','').replace('.htm','/')
+            if tocRule.contains("replace('/txt','')") {
+                return baseUrl.absoluteString
+                    .replacingOccurrences(of: "/txt", with: "")
+                    .replacingOccurrences(of: ".htm", with: "/")
+            }
+            return nil
+        }
+        guard let doc = try? SwiftSoup.parse(html, baseUrl.absoluteString) else { return nil }
+        return extractValue(from: doc, rule: tocRule, baseUrl: baseUrl)
+    }
+    
+    // MARK: - High-Level Fetch & Parse TOC (Handles Separate TOC URL + Fallbacks)
+    public func fetchAndParseToc(bookUrl: String, source: BookSource) async throws -> [Chapter] {
+        let (bookHtml, finalBookUrl) = try await NetworkManager.shared.fetchString(from: bookUrl, referer: source.bookSourceUrl)
+        
+        // 1. Check if BookInfo specifies a separate TOC URL
+        if let separateTocUrl = resolveTocUrl(html: bookHtml, baseUrl: finalBookUrl, source: source),
+           separateTocUrl != finalBookUrl.absoluteString {
+            if let (tocHtml, finalTocUrl) = try? await NetworkManager.shared.fetchString(from: separateTocUrl, referer: finalBookUrl.absoluteString),
+               let chapters = try? parseToc(html: tocHtml, baseUrl: finalTocUrl, source: source),
+               chapters.count >= 3 {
+                return chapters
+            }
         }
         
+        // 2. Parse TOC from Book Page directly (with built-in smart fallbacks)
+        return try parseToc(html: bookHtml, baseUrl: finalBookUrl, source: source)
+    }
+
+    // MARK: - TOC (Table of Contents) Parsing + Smart Fallback
+    public func parseToc(html: String, baseUrl: URL, source: BookSource) throws -> [Chapter] {
+        let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
         var chapters: [Chapter] = []
-        var seenUrls = Set<String>()
-        var index = 0
         
-        for el in elements {
-            let title = extractValue(from: el, rule: source.ruleToc?.chapterName ?? "text", baseUrl: baseUrl) ?? ""
-            guard let url = extractValue(from: el, rule: source.ruleToc?.chapterUrl ?? "href", baseUrl: baseUrl) else {
-                continue
+        // 1. Try explicit ruleToc from bookSource
+        if let listRule = source.ruleToc?.chapterList, !listRule.isEmpty {
+            var elements: [Element] = []
+            for alt in listRule.components(separatedBy: "||") {
+                let found = stepSelect(from: [doc], chainRule: alt)
+                if !found.isEmpty {
+                    elements = found
+                    break
+                }
             }
             
-            if !title.isEmpty && !url.isEmpty && !seenUrls.contains(url) {
-                seenUrls.insert(url)
-                chapters.append(Chapter(index: index, title: title, url: url))
-                index += 1
+            let nameRule = source.ruleToc?.chapterName ?? "text"
+            let urlRule = source.ruleToc?.chapterUrl ?? "href"
+            chapters = extractChapters(from: elements, nameRule: nameRule, urlRule: urlRule, baseUrl: baseUrl)
+        }
+        
+        // 2. Smart Auto-Discovery Fallback if ruleToc yielded too few chapters
+        if chapters.count < 3 {
+            let fallbackSelectors = [
+                "#list dd a", ".listmain dd a", "#chapterlist a", "#ul_all_chapters li a",
+                "#list-chapterAll a", ".section-list.-1 a", ".book_list a", ".catalog a",
+                ".chapter-list a", ".list_xm.-1 a", ".directoryArea.-1 a", "dl dd a", ".list a"
+            ]
+            for sel in fallbackSelectors {
+                let els = stepSelect(from: [doc], chainRule: sel)
+                if els.count >= 5 {
+                    let candidate = extractChapters(from: els, nameRule: "text", urlRule: "href", baseUrl: baseUrl)
+                    if candidate.count > chapters.count {
+                        chapters = candidate
+                        break
+                    }
+                }
+            }
+        }
+        
+        // 3. Deep heuristic: scan all <a> tags on page that look like novel chapters
+        if chapters.isEmpty, let allLinks = try? doc.select("a[href]").array() {
+            var heuristic: [Chapter] = []
+            var seen = Set<String>()
+            var idx = 0
+            for a in allLinks {
+                guard let title = try? a.text().trimmingCharacters(in: .whitespacesAndNewlines),
+                      let href = try? a.attr("href").trimmingCharacters(in: .whitespacesAndNewlines),
+                      !title.isEmpty, !href.isEmpty,
+                      !href.hasPrefix("javascript"), !href.hasPrefix("#") else { continue }
+                
+                let looksLikeChapter = title.contains("第") && (title.contains("章") || title.contains("节") || title.contains("回"))
+                    || title.range(of: "^\\d+[、. 　]", options: .regularExpression) != nil
+                if looksLikeChapter, let fullUrl = URL(string: href, relativeTo: baseUrl)?.absoluteString, !seen.contains(fullUrl) {
+                    seen.insert(fullUrl)
+                    heuristic.append(Chapter(index: idx, title: title, url: fullUrl))
+                    idx += 1
+                }
+            }
+            if heuristic.count >= 3 {
+                chapters = heuristic
             }
         }
         
         return chapters
     }
     
-    // MARK: - Chapter Content Parsing
+    private func extractChapters(from elements: [Element], nameRule: String, urlRule: String, baseUrl: URL) -> [Chapter] {
+        var chapters: [Chapter] = []
+        var seenUrls = Set<String>()
+        var index = 0
+        
+        for el in elements {
+            let title = extractValue(from: el, rule: nameRule, baseUrl: baseUrl)
+                ?? extractValue(from: el, rule: "a@text||text", baseUrl: baseUrl)
+                ?? ""
+            guard let url = extractValue(from: el, rule: urlRule, baseUrl: baseUrl)
+                ?? extractValue(from: el, rule: "a@href||href", baseUrl: baseUrl) else {
+                continue
+            }
+            
+            if !title.isEmpty && !url.isEmpty && !url.hasPrefix("javascript") && !seenUrls.contains(url) {
+                seenUrls.insert(url)
+                chapters.append(Chapter(index: index, title: title, url: url))
+                index += 1
+            }
+        }
+        return chapters
+    }
+    
+    // MARK: - Chapter Content Parsing + Smart Fallback
     public func parseContent(html: String, baseUrl: URL, source: BookSource) throws -> String {
         let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
-        let ruleContent = source.ruleContent?.content ?? "#content@html||#chaptercontent@html||.read-content@html"
         
-        let alternatives = ruleContent.components(separatedBy: "||")
-        for alt in alternatives {
-            let parsed = parseLegadoRule(alt)
-            if !parsed.cssSelector.isEmpty,
-               let contentEl = try? doc.select(parsed.cssSelector).first() {
-                var raw = (try? contentEl.html()) ?? ""
-                if let pattern = parsed.regexPattern {
-                    raw = raw.replacingOccurrences(of: pattern, with: parsed.regexReplacement, options: .regularExpression)
+        if let ruleContent = source.ruleContent?.content, !ruleContent.isEmpty {
+            if let extracted = extractValue(from: doc, rule: ruleContent, baseUrl: baseUrl) {
+                let cleaned = cleanNovelText(extracted)
+                if cleaned.count >= 50 {
+                    return cleaned
                 }
+            }
+        }
+        
+        // Smart Auto-Discovery Fallback for common novel content containers
+        let fallbackRules = [
+            "#content@html", "#chaptercontent@html", ".read-content@html",
+            "#booktxt@html", ".con@html", "#nr1@html", ".txtnav@html",
+            ".word_read@html", ".content@html", "#TextContent@html", "article@html"
+        ]
+        for rule in fallbackRules {
+            if let raw = extractValue(from: doc, rule: rule, baseUrl: baseUrl) {
                 let cleaned = cleanNovelText(raw)
-                if !cleaned.isEmpty {
+                if cleaned.count >= 80 {
                     return cleaned
                 }
             }
         }
         
-        // Fallback: try common novel content selectors
-        for fallback in ["#content", "#chaptercontent", ".read-content", "#booktxt", ".content", "#nr1"] {
-            if let found = try? doc.select(fallback).first() {
-                let cleaned = cleanNovelText((try? found.html()) ?? "")
-                if !cleaned.isEmpty {
-                    return cleaned
-                }
-            }
-        }
-        
-        return "未能解析章节正文，请检查书源规则或点击右上角刷新重试。"
+        return "未能解析章节正文，请点击右上角「换源」切换其他书源或点击刷新重试。"
     }
     
     // MARK: - Clean HTML to Reader Prose
@@ -261,11 +483,16 @@ public class LegadoParser {
         text = text.replacingOccurrences(of: "&amp;", with: "&")
         text = text.replacingOccurrences(of: "&quot;", with: "\"")
         text = text.replacingOccurrences(of: "&#160;", with: " ")
+        text = text.replacingOccurrences(of: "　", with: " ")
         
+        let adKeywords = ["请记住本站域名", "手机阅读", "最新章节请访问", "一秒记住", "天才一秒记住", "本章未完", "点击下一页继续阅读"]
         let lines = text.components(separatedBy: .newlines)
         let formattedLines = lines
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+            .filter { line in
+                guard !line.isEmpty else { return false }
+                return !adKeywords.contains(where: { line.contains($0) && line.count < 50 })
+            }
             .map { "　　" + $0 }
         
         return formattedLines.joined(separator: "\n\n")

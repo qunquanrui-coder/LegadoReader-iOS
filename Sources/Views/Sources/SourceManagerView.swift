@@ -19,13 +19,42 @@ public struct SourceManagerView: View {
     
     public var body: some View {
         NavigationStack {
-            VStack {
-                // Search bar
-                HStack {
+            VStack(spacing: 0) {
+                // Top Summary Dashboard Card
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("已启用 \(storage.bookSources.filter { $0.enabled ?? true }.count) / \(storage.bookSources.count) 个书源")
+                            .font(.system(size: 16, weight: .bold, design: .serif))
+                        Text("内置 20 个已通过目录与正文实测的纯净书源")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        storage.loadDefaultSources()
+                    } label: {
+                        Text("重置精选源")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.indigo.opacity(0.14))
+                            .foregroundColor(.indigo)
+                            .clipShape(Capsule())
+                    }
+                }
+                .padding(14)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                
+                // Search Bar
+                HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
-                    TextField("筛选已导入的书源...", text: $searchSourceText)
+                    TextField("搜索书源名称或域名...", text: $searchSourceText)
                         .textFieldStyle(.plain)
+                        .font(.system(size: 14))
                     if !searchSourceText.isEmpty {
                         Button {
                             searchSourceText = ""
@@ -35,58 +64,62 @@ public struct SourceManagerView: View {
                         }
                     }
                 }
-                .padding(8)
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(8)
-                .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(10)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
                 
                 // Source List
                 List {
-                    Section(header: Text("总计 \(storage.bookSources.count) 个书源 (已启用: \(storage.bookSources.filter { $0.enabled ?? true }.count))")) {
-                        ForEach(filteredSources) { source in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(source.bookSourceName)
-                                        .font(.system(size: 15, weight: .semibold))
-                                    Text(source.bookSourceUrl)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                    if let comment = source.bookSourceComment, !comment.isEmpty {
-                                        Text(comment)
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary.opacity(0.8))
-                                            .lineLimit(1)
+                    ForEach(filteredSources) { source in
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill((source.enabled ?? true) ? Color.green : Color.gray.opacity(0.4))
+                                .frame(width: 8, height: 8)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(source.bookSourceName)
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text(source.bookSourceUrl)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: Binding(
+                                get: { source.enabled ?? true },
+                                set: { newValue in
+                                    if let idx = storage.bookSources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl }) {
+                                        storage.bookSources[idx].enabled = newValue
+                                        storage.saveBookSources()
                                     }
                                 }
-                                
-                                Spacer()
-                                
-                                Toggle("", isOn: Binding(
-                                    get: { source.enabled ?? true },
-                                    set: { newValue in
-                                        if let idx = storage.bookSources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl }) {
-                                            storage.bookSources[idx].enabled = newValue
-                                            storage.saveBookSources()
-                                        }
-                                    }
-                                ))
-                                .labelsHidden()
-                            }
+                            ))
+                            .labelsHidden()
+                            .tint(.indigo)
                         }
-                        .onDelete(perform: deleteSource)
+                        .padding(.vertical, 2)
                     }
+                    .onDelete(perform: deleteSource)
                 }
                 .listStyle(.insetGrouped)
             }
-            .navigationTitle("书源管理")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("书源中心")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showingImportSheet = true
                     } label: {
-                        Label("网络导入", systemImage: "plus.circle")
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle.fill")
+                            Text("网络导入")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.indigo)
                     }
                 }
             }

@@ -7,10 +7,12 @@ public class StorageManager: ObservableObject {
     @Published public var bookshelf: [Book] = []
     @Published public var bookSources: [BookSource] = []
     @Published public var readerConfig: ReaderConfig = .default
+    @Published public var searchHistory: [String] = []
     
-    private let bookshelfKey = "LegadoReader_Bookshelf"
-    private let sourcesKey = "LegadoReader_BookSources"
-    private let configKey = "LegadoReader_ReaderConfig"
+    private let bookshelfKey = "LegadoReader_Bookshelf_v2"
+    private let sourcesKey = "LegadoReader_BookSources_v2"
+    private let configKey = "LegadoReader_ReaderConfig_v2"
+    private let historyKey = "LegadoReader_SearchHistory_v2"
     
     private let fileManager = FileManager.default
     private var cacheDirectory: URL {
@@ -35,6 +37,13 @@ public class StorageManager: ObservableObject {
         if let shelfData = UserDefaults.standard.data(forKey: bookshelfKey),
            let savedShelf = try? JSONDecoder().decode([Book].self, from: shelfData) {
             self.bookshelf = savedShelf
+        } else if let legacyShelfData = UserDefaults.standard.data(forKey: "LegadoReader_Bookshelf"),
+                  let legacyShelf = try? JSONDecoder().decode([Book].self, from: legacyShelfData) {
+            self.bookshelf = legacyShelf
+        }
+        
+        if let hist = UserDefaults.standard.stringArray(forKey: historyKey) {
+            self.searchHistory = hist
         }
         
         if let sourcesData = UserDefaults.standard.data(forKey: sourcesKey),
@@ -46,12 +55,51 @@ public class StorageManager: ObservableObject {
         }
     }
     
+    public func addSearchHistory(_ keyword: String) {
+        let clean = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        searchHistory.removeAll(where: { $0 == clean })
+        searchHistory.insert(clean, at: 0)
+        if searchHistory.count > 12 {
+            searchHistory = Array(searchHistory.prefix(12))
+        }
+        UserDefaults.standard.set(searchHistory, forKey: historyKey)
+    }
+    
+    public func clearSearchHistory() {
+        searchHistory.removeAll()
+        UserDefaults.standard.removeObject(forKey: historyKey)
+    }
+    
     // MARK: - BookShelf Operations
     public func addBookToShelf(_ book: Book) {
-        if !bookshelf.contains(where: { $0.id == book.id }) {
+        if let idx = bookshelf.firstIndex(where: { $0.title == book.title && $0.author == book.author }) {
+            bookshelf[idx].sourceUrl = book.sourceUrl
+            bookshelf[idx].sourceName = book.sourceName
+            bookshelf[idx].bookUrl = book.bookUrl
+            if let cover = book.coverUrl, !cover.isEmpty {
+                bookshelf[idx].coverUrl = cover
+            }
+            saveBookshelf()
+        } else {
             bookshelf.insert(book, at: 0)
             saveBookshelf()
         }
+    }
+    
+    public func replaceBookSource(for book: Book, with newBook: Book) -> Book {
+        var updated = book
+        updated.sourceUrl = newBook.sourceUrl
+        updated.sourceName = newBook.sourceName
+        updated.bookUrl = newBook.bookUrl
+        if let latest = newBook.latestChapter, !latest.isEmpty {
+            updated.latestChapter = latest
+        }
+        if let idx = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
+            bookshelf[idx] = updated
+            saveBookshelf()
+        }
+        return updated
     }
     
     public func removeBookFromShelf(_ book: Book) {
@@ -101,18 +149,22 @@ public class StorageManager: ObservableObject {
             throw NSError(domain: "LegadoReader", code: -2, userInfo: [NSLocalizedDescriptionKey: "书源 JSON 格式不符合 Legado 规范"])
         }
         
-        var existingMap = Dictionary(uniqueKeysWithValues: bookSources.map { ($0.bookSourceUrl, $0) })
+        var existingSet = Set(bookSources.map { $0.bookSourceUrl })
         var addedCount = 0
         
         for s in newSources {
             guard !s.bookSourceUrl.isEmpty, !s.bookSourceName.isEmpty else { continue }
-            if existingMap[s.bookSourceUrl] == nil {
+            // Skip pure JS sources that cannot be parsed without Rhino/QuickJS
+            if let su = s.searchUrl, (su.hasPrefix("@js:") || su.hasPrefix("<js>")) {
+                continue
+            }
+            if !existingSet.contains(s.bookSourceUrl) {
+                existingSet.insert(s.bookSourceUrl)
+                bookSources.append(s)
                 addedCount += 1
             }
-            existingMap[s.bookSourceUrl] = s
         }
         
-        bookSources = Array(existingMap.values).sorted { $0.bookSourceName < $1.bookSourceName }
         saveBookSources()
         return addedCount
     }
@@ -130,6 +182,11 @@ public class StorageManager: ObservableObject {
     public func getCachedChapter(bookId: String, chapterIndex: Int) -> String? {
         let filePath = cacheDirectory.appendingPathComponent(bookId).appendingPathComponent("\(chapterIndex).txt")
         return try? String(contentsOf: filePath, encoding: .utf8)
+    }
+    
+    public func isChapterCached(bookId: String, chapterIndex: Int) -> Bool {
+        let filePath = cacheDirectory.appendingPathComponent(bookId).appendingPathComponent("\(chapterIndex).txt")
+        return fileManager.fileExists(atPath: filePath.path)
     }
     
     public func saveChapterCache(bookId: String, chapterIndex: Int, content: String) {

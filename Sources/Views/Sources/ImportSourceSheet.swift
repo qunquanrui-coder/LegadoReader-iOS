@@ -9,10 +9,17 @@ public struct ImportSourceSheet: View {
     @State private var statusMessage = ""
     @State private var isError = false
     
-    // Quick presets
-    private let presets: [(name: String, url: String)] = [
-        ("3000+ 综合校验源 (推荐)", "https://fastly.jsdelivr.net/gh/shidahuilang/shuyuan-bak@main/good.json"),
-        ("XIU2 精品书源 (高速稳定)", "https://cdn.jsdmirror.com/gh/XIU2/Yuedu/shuyuan")
+    private let presets: [(name: String, desc: String, url: String)] = [
+        (
+            "风读官方 20+ 实测高速纯净源 (强烈推荐)",
+            "全部通过搜索+目录+正文三重实测，秒开无报错",
+            "https://fastly.jsdelivr.net/gh/qunquanrui-coder/LegadoReader-iOS@main/Resources/default_sources.json"
+        ),
+        (
+            "全网 3000+ 综合书源合集",
+            "数量庞大，自动过滤纯JS脚本源，适合冷门小说检索",
+            "https://fastly.jsdelivr.net/gh/shidahuilang/shuyuan-bak@main/good.json"
+        )
     ]
     
     public init() {}
@@ -20,7 +27,7 @@ public struct ImportSourceSheet: View {
     public var body: some View {
         NavigationStack {
             Form {
-                Section("书源网络地址 (JSON 直链)") {
+                Section("自定义网络导入 (JSON 直链)") {
                     TextField("粘贴 http(s):// 开头的书源 JSON 链接", text: $inputUrl)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
@@ -29,50 +36,56 @@ public struct ImportSourceSheet: View {
                         performImport(urlStr: inputUrl)
                     } label: {
                         if isImporting {
-                            HStack {
+                            HStack(spacing: 8) {
                                 ProgressView()
-                                Text("正在下载解析...")
+                                Text("正在下载并校验规则...")
                             }
                         } else {
-                            Text("立即导入")
+                            Text("立即网络导入")
                                 .fontWeight(.semibold)
+                                .foregroundColor(.indigo)
                         }
                     }
                     .disabled(inputUrl.trimmingCharacters(in: .whitespaces).isEmpty || isImporting)
                 }
                 
-                Section("快捷常用源推荐 (点击一键填入)") {
+                Section("官方精选源仓库 (点击一键导入)") {
                     ForEach(presets, id: \.url) { preset in
                         Button {
                             inputUrl = preset.url
                             performImport(urlStr: preset.url)
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(preset.name)
-                                    .font(.subheadline)
-                                    .foregroundColor(.primary)
-                                Text(preset.url)
-                                    .font(.caption2)
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Text(preset.name)
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.down.circle.fill")
+                                        .foregroundColor(.indigo)
+                                }
+                                Text(preset.desc)
+                                    .font(.system(size: 12))
                                     .foregroundColor(.secondary)
-                                    .lineLimit(1)
                             }
+                            .padding(.vertical, 4)
                         }
                     }
                 }
                 
                 if !statusMessage.isEmpty {
-                    Section {
+                    Section("导入结果") {
                         Text(statusMessage)
                             .font(.subheadline)
                             .foregroundColor(isError ? .red : .green)
                     }
                 }
             }
-            .navigationTitle("网络导入书源")
+            .navigationTitle("导入书源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") {
                         dismiss()
                     }
                 }
@@ -85,7 +98,7 @@ public struct ImportSourceSheet: View {
         guard !cleanUrl.isEmpty else { return }
         
         isImporting = true
-        statusMessage = "正在请求远程数据..."
+        statusMessage = "正在拉取远程书源数据..."
         isError = false
         
         Task {
@@ -95,7 +108,7 @@ public struct ImportSourceSheet: View {
                 await MainActor.run {
                     self.isImporting = false
                     self.isError = false
-                    self.statusMessage = "导入成功！成功载入 \(added) 个新书源，现有总书源：\(storage.bookSources.count) 个"
+                    self.statusMessage = "✅ 导入成功！新增 \(added) 个兼容书源，当前总计可用：\(storage.bookSources.count) 个"
                 }
             } catch {
                 await MainActor.run {

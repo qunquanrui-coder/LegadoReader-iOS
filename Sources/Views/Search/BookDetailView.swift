@@ -7,63 +7,88 @@ public struct BookDetailView: View {
     @State private var isLoadingChapters = true
     @State private var errorMessage: String?
     @State private var isReading = false
+    @State private var showChangeSource = false
+    @State private var showAllChapters = false
     
     public init(book: Book) {
         _book = State(initialValue: book)
     }
     
     private var isAddedToShelf: Bool {
-        storage.bookshelf.contains(where: { $0.id == book.id })
+        storage.bookshelf.contains(where: { $0.title == book.title && $0.author == book.author })
     }
     
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
-                HStack(alignment: .top, spacing: 16) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.blue.opacity(0.15))
-                            .frame(width: 90, height: 120)
-                        
-                        if let coverUrl = book.coverUrl, let url = URL(string: coverUrl) {
-                            AsyncImage(url: url) { img in
-                                img.resizable().aspectRatio(contentMode: .fill)
-                            } placeholder: {
-                                Text(book.title.prefix(2))
-                                    .font(.title)
-                                    .foregroundColor(.blue)
-                            }
-                            .frame(width: 90, height: 120)
-                            .cornerRadius(8)
-                            .clipped()
-                        } else {
-                            Text(book.title.prefix(2))
-                                .font(.title)
-                                .foregroundColor(.blue)
-                        }
-                    }
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                // Hero Book Card
+                HStack(alignment: .top, spacing: 18) {
+                    BookCoverView(
+                        title: book.title,
+                        author: book.author,
+                        coverUrl: book.coverUrl,
+                        width: 96,
+                        height: 132,
+                        cornerRadius: 10
+                    )
                     
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(book.title)
-                            .font(.title3)
-                            .fontWeight(.bold)
-                        Text("作者: \(book.author)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text("书源: \(book.sourceName)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        if let latest = book.latestChapter {
-                            Text("最新: \(latest)")
+                            .font(.system(size: 20, weight: .bold, design: .serif))
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
+                        
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.text.rectangle")
                                 .font(.caption)
+                                .foregroundColor(.indigo)
+                            Text(book.author)
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.secondary)
-                                .lineLimit(2)
+                        }
+                        
+                        HStack(spacing: 8) {
+                            Text(book.sourceName)
+                                .font(.system(size: 11, weight: .semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.indigo.opacity(0.12))
+                                .foregroundColor(.indigo)
+                                .clipShape(Capsule())
+                            
+                            Button {
+                                showChangeSource = true
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                    Text("换源")
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.orange.opacity(0.15))
+                                .foregroundColor(.orange)
+                                .clipShape(Capsule())
+                            }
+                        }
+                        
+                        if let latest = book.latestChapter, !latest.isEmpty {
+                            Text("最新：\(latest)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
                         }
                     }
+                    Spacer()
                 }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+                )
                 
-                // Action Buttons
+                // Primary Action Buttons
                 HStack(spacing: 12) {
                     Button {
                         if isAddedToShelf {
@@ -72,97 +97,182 @@ public struct BookDetailView: View {
                             storage.addBookToShelf(book)
                         }
                     } label: {
-                        HStack {
-                            Image(systemName: isAddedToShelf ? "checkmark" : "plus")
+                        HStack(spacing: 6) {
+                            Image(systemName: isAddedToShelf ? "checkmark.circle.fill" : "plus.circle.fill")
                             Text(isAddedToShelf ? "已在书架" : "加入书架")
                         }
+                        .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(isAddedToShelf ? Color.secondary.opacity(0.2) : Color.blue.opacity(0.15))
-                        .foregroundColor(isAddedToShelf ? .secondary : .blue)
-                        .cornerRadius(10)
+                        .padding(.vertical, 13)
+                        .background(isAddedToShelf ? Color.secondary.opacity(0.15) : Color.indigo.opacity(0.12))
+                        .foregroundColor(isAddedToShelf ? .secondary : .indigo)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     
                     Button {
                         storage.addBookToShelf(book)
                         isReading = true
                     } label: {
-                        HStack {
+                        HStack(spacing: 6) {
                             Image(systemName: "book.fill")
                             Text("立即阅读")
                         }
+                        .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.blue)
+                        .padding(.vertical, 13)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.indigo, Color.purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: Color.indigo.opacity(0.3), radius: 6, x: 0, y: 3)
                     }
                 }
                 
-                // Intro
+                // Synopsis Card
                 if let intro = book.intro, !intro.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("简介")
-                            .font(.headline)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("作品简介")
+                            .font(.system(size: 16, weight: .bold, design: .serif))
                         Text(intro)
-                            .font(.subheadline)
+                            .font(.system(size: 14))
                             .foregroundColor(.secondary)
-                            .lineSpacing(4)
+                            .lineSpacing(5)
                     }
-                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    )
                 }
                 
-                // Chapters
-                VStack(alignment: .leading, spacing: 8) {
+                // Chapters Card
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("目录")
-                            .font(.headline)
+                        Text("章节目录")
+                            .font(.system(size: 16, weight: .bold, design: .serif))
                         Spacer()
                         if !chapters.isEmpty {
-                            Text("共 \(chapters.count) 章")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            Button {
+                                showAllChapters = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("共 \(chapters.count) 章 · 查看全部")
+                                    Image(systemName: "chevron.right")
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.indigo)
+                            }
                         }
                     }
                     
                     if isLoadingChapters {
-                        HStack {
+                        HStack(spacing: 10) {
                             Spacer()
-                            ProgressView("正在抓取目录...")
-                            Spacer()
-                        }
-                        .padding(.vertical, 20)
-                    } else if let error = errorMessage {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(chapters.prefix(20)) { ch in
-                            HStack {
-                                Text(ch.title)
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.vertical, 6)
-                            Divider()
-                        }
-                        if chapters.count > 20 {
-                            Text("点击“立即阅读”查看全部 \(chapters.count) 个章节...")
-                                .font(.caption)
+                            ProgressView()
+                            Text("正在智能解析章节目录...")
+                                .font(.subheadline)
                                 .foregroundColor(.secondary)
-                                .padding(.top, 4)
+                            Spacer()
+                        }
+                        .padding(.vertical, 30)
+                    } else if let error = errorMessage {
+                        VStack(spacing: 12) {
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            HStack(spacing: 12) {
+                                Button("重试加载") {
+                                    loadChapters()
+                                }
+                                .buttonStyle(.bordered)
+                                
+                                Button("一键换源") {
+                                    showChangeSource = true
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.indigo)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(chapters.prefix(15)) { ch in
+                                Button {
+                                    book.currentChapterIndex = ch.index
+                                    book.currentChapterTitle = ch.title
+                                    storage.addBookToShelf(book)
+                                    isReading = true
+                                } label: {
+                                    HStack {
+                                        Text(ch.title)
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary.opacity(0.4))
+                                    }
+                                    .padding(.vertical, 11)
+                                }
+                                Divider()
+                            }
+                            
+                            if chapters.count > 15 {
+                                Button {
+                                    showAllChapters = true
+                                } label: {
+                                    Text("展开全部 \(chapters.count) 个章节")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.indigo)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.top, 12)
+                                }
+                            }
                         }
                     }
                 }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
             }
-            .padding()
+            .padding(16)
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle(book.title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadChapters()
+        }
+        .sheet(isPresented: $showChangeSource) {
+            ChangeSourceSheet(currentBook: book) { newBook in
+                self.book = newBook
+                loadChapters()
+            }
+        }
+        .sheet(isPresented: $showAllChapters) {
+            ChapterListView(
+                chapters: chapters,
+                currentIndex: book.currentChapterIndex,
+                onSelectChapter: { idx in
+                    book.currentChapterIndex = idx
+                    if idx < chapters.count {
+                        book.currentChapterTitle = chapters[idx].title
+                    }
+                    storage.addBookToShelf(book)
+                    isReading = true
+                }
+            )
         }
         .fullScreenCover(isPresented: $isReading) {
             ReaderView(book: book)
@@ -170,24 +280,27 @@ public struct BookDetailView: View {
     }
     
     private func loadChapters() {
-        guard let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl }) else {
-            errorMessage = "未找到对应书源"
-            isLoadingChapters = false
-            return
-        }
+        isLoadingChapters = true
+        errorMessage = nil
+        
+        let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
+            ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         
         Task {
             do {
-                let (html, finalUrl) = try await NetworkManager.shared.fetchString(from: book.bookUrl)
-                let parsedChapters = try LegadoParser.shared.parseToc(html: html, baseUrl: finalUrl, source: source)
+                let parsedChapters = try await LegadoParser.shared.fetchAndParseToc(bookUrl: book.bookUrl, source: source)
                 await MainActor.run {
-                    self.chapters = parsedChapters
-                    self.book.totalChapters = parsedChapters.count
+                    if parsedChapters.isEmpty {
+                        self.errorMessage = "当前站点未返回有效目录，建议点击「一键换源」切换其他书源"
+                    } else {
+                        self.chapters = parsedChapters
+                        self.book.totalChapters = parsedChapters.count
+                    }
                     self.isLoadingChapters = false
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "目录解析失败: \(error.localizedDescription)"
+                    self.errorMessage = "目录拉取超时或站点受限，请点击「一键换源」切换书源"
                     self.isLoadingChapters = false
                 }
             }
