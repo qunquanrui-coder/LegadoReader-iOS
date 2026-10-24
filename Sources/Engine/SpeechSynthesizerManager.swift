@@ -87,17 +87,18 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         detachedAdvanceTask = Task { [weak self] in
             guard let self = self else { return }
             let storage = StorageManager.shared
-            var text: String? = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index)
+            var text: String? = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index, chapterURL: chapter.url, sourceURL: book.sourceUrl)
             if text == nil {
                 let source = await MainActor.run {
                     storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
                         ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
                 }
-                if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: chapter.url, referer: book.bookUrl),
-                   let parsed = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
-                   !parsed.isEmpty {
-                    storage.saveChapterCache(bookId: book.id, chapterIndex: chapter.index, content: parsed)
-                    text = parsed
+                let nextURL = nextIdx + 1 < baseCtx.chapters.count ? baseCtx.chapters[nextIdx + 1].url : nil
+                if let content = try? await ChapterContentLoader.shared.load(chapter: chapter, source: source,
+                                                                           referer: book.bookUrl, nextChapterURL: nextURL),
+                   !Task.isCancelled {
+                    storage.saveChapterCache(bookId: book.id, chapterIndex: chapter.index, content: content)
+                    text = content.text
                 }
             }
             guard !Task.isCancelled else { return }
@@ -119,7 +120,8 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                 newCtx.chapterIndex = nextIdx
                 self.context = newCtx
                 self.saveDetachedProgress(paragraphIndex: 0)
-                self.startReading(paragraphs: paras, fromIndex: 0, bookTitle: book.title, chapterTitle: chapter.title)
+                self.startReading(paragraphs: paras, fromIndex: 0, bookTitle: book.title,
+                                  chapterTitle: chapter.title, initiallyPaused: self.isPaused)
             }
         }
     }
@@ -351,7 +353,8 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     // MARK: - Playback Controls
-    public func startReading(paragraphs: [String], fromIndex: Int = 0, bookTitle: String? = nil, chapterTitle: String? = nil) {
+    public func startReading(paragraphs: [String], fromIndex: Int = 0, bookTitle: String? = nil,
+                             chapterTitle: String? = nil, initiallyPaused: Bool = false) {
         guard !paragraphs.isEmpty else { return }
         if let bt = bookTitle, !bt.isEmpty { self.currentBookTitle = bt }
         if let ct = chapterTitle, !ct.isEmpty { self.currentChapterTitle = ct }
@@ -367,9 +370,14 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         let safeIndex = max(0, min(fromIndex, paragraphs.count - 1))
         self.currentParagraphIndex = safeIndex
         self.isSpeaking = true
-        self.isPaused = false
+        self.isPaused = initiallyPaused
         
         updateNowPlayingInfo()
+        if initiallyPaused {
+            stopKeepAliveAudio()
+            endBackgroundTaskAssertion()
+            return
+        }
         speakParagraph(at: safeIndex)
     }
     

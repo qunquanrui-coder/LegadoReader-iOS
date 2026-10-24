@@ -40,6 +40,9 @@ public class NetworkManager {
         }
         
         let (data, response) = try await session.data(for: request)
+        if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
+            throw URLError(.badServerResponse)
+        }
         let finalUrl = response.url ?? url
         return (try decodeData(data), finalUrl)
     }

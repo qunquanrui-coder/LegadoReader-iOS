@@ -46,6 +46,9 @@ public struct ReaderView: View {
     @State private var cacheProgressText: String? = nil
     @State private var isCachingChapters = false
     @State private var activeCacheTask: Task<Void, Never>? = nil
+    @State private var chapterLoadTask: Task<Void, Never>?
+    @State private var chapterLoadID = UUID()
+    @State private var prefetchTask: Task<Void, Never>?
     
     // Intra-Chapter Paragraph Restoration State
     @State private var targetRestoreParagraph: Int? = nil
@@ -349,6 +352,9 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
+                chapterLoadTask?.cancel()
+                chapterLoadID = UUID()
+                prefetchTask?.cancel()
                 activeCacheTask?.cancel()
                 isCachingChapters = false
                 cacheProgressText = nil
@@ -1408,8 +1414,13 @@ public struct ReaderView: View {
     
     private func loadCurrentChapterContent(forceRefresh: Bool = false, autoContinueTTS: Bool = false) {
         guard let chapter = currentChapter else { return }
+        chapterLoadTask?.cancel()
+        let loadID = UUID()
+        chapterLoadID = loadID
+        let requestedBook = book
         
-        if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index) {
+        if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index,
+                                                               chapterURL: chapter.url, sourceURL: book.sourceUrl) {
             self.applyChapterContent(cached)
             self.isLoading = false
             self.errorMessage = nil
@@ -1417,12 +1428,13 @@ public struct ReaderView: View {
             self.saveProgress(force: true)
             self.setupSpeechCallbacks()
             self.prefetchNextChapter()
-            if autoContinueTTS {
+            if autoContinueTTS && self.speech.isSpeaking {
                 self.speech.startReading(
                     paragraphs: self.formattedParagraphs,
                     fromIndex: 0,
                     bookTitle: self.book.title,
-                    chapterTitle: chapter.title
+                    chapterTitle: chapter.title,
+                    initiallyPaused: self.speech.isPaused
                 )
             }
             return
@@ -1434,30 +1446,38 @@ public struct ReaderView: View {
         isLoading = true
         errorMessage = nil
         
-        Task {
+        let nextURL = currentChapterIndex + 1 < chapters.count ? chapters[currentChapterIndex + 1].url : nil
+        chapterLoadTask = Task {
             do {
-                let (html, finalUrl) = try await NetworkManager.shared.fetchString(from: chapter.url, referer: book.bookUrl)
-                let text = try LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source)
+                let content = try await ChapterContentLoader.shared.load(chapter: chapter, source: source,
+                                                                         referer: requestedBook.bookUrl, nextChapterURL: nextURL)
+                try Task.checkCancellation()
                 
                 await MainActor.run {
-                    self.applyChapterContent(text)
+                    guard self.chapterLoadID == loadID, self.currentChapter?.url == chapter.url,
+                          self.book.bookUrl == requestedBook.bookUrl else { return }
+                    self.applyChapterContent(content.text)
                     self.isLoading = false
-                    self.storage.saveChapterCache(bookId: self.book.id, chapterIndex: chapter.index, content: text)
+                    self.storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: chapter.index, content: content)
                     self.restorePageFromParagraphIfNeeded()
                     self.saveProgress(force: true)
                     self.setupSpeechCallbacks()
                     self.prefetchNextChapter()
-                    if autoContinueTTS {
+                    if autoContinueTTS && self.speech.isSpeaking {
                         self.speech.startReading(
                             paragraphs: self.formattedParagraphs,
                             fromIndex: 0,
                             bookTitle: self.book.title,
-                            chapterTitle: chapter.title
+                            chapterTitle: chapter.title,
+                            initiallyPaused: self.speech.isPaused
                         )
                     }
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run {
+                    guard self.chapterLoadID == loadID else { return }
                     self.errorMessage = "正文抓取失败: \(error.localizedDescription)"
                     self.isLoading = false
                 }
@@ -1478,17 +1498,21 @@ public struct ReaderView: View {
     private func prefetchNextChapter() {
         let nextIdx = currentChapterIndex + 1
         guard nextIdx < chapters.count else { return }
-        guard !storage.isChapterCached(bookId: book.id, chapterIndex: nextIdx) else { return }
         
         let nextCh = chapters[nextIdx]
+        let requestedBook = book
+        guard !storage.isChapterCached(bookId: book.id, chapterIndex: nextCh.index,
+                                       chapterURL: nextCh.url, sourceURL: book.sourceUrl) else { return }
+        let followingURL = nextIdx + 1 < chapters.count ? chapters[nextIdx + 1].url : nil
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         
-        Task {
-            if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: nextCh.url, referer: book.bookUrl),
-               let text = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
-               text.count >= 50 {
-                storage.saveChapterCache(bookId: book.id, chapterIndex: nextCh.index, content: text)
+        prefetchTask?.cancel()
+        prefetchTask = Task {
+            if let content = try? await ChapterContentLoader.shared.load(chapter: nextCh, source: source,
+                                                                        referer: requestedBook.bookUrl, nextChapterURL: followingURL),
+               !Task.isCancelled {
+                storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: nextCh.index, content: content)
             }
         }
     }
@@ -1511,6 +1535,7 @@ public struct ReaderView: View {
         }
         guard startIdx <= endIdx else { return }
         
+        let completeTOC = chapters
         let targetChapters = Array(chapters[startIdx...endIdx])
         let total = targetChapters.count
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
@@ -1531,31 +1556,37 @@ public struct ReaderView: View {
                 let chunkEnd = min(total, chunkStart + batchSize)
                 let slice = Array(targetChapters[chunkStart..<chunkEnd])
                 
-                await withTaskGroup(of: Void.self) { group in
+                let savedCount = await withTaskGroup(of: Bool.self) { group -> Int in
                     for ch in slice {
                         group.addTask {
-                            guard !Task.isCancelled else { return }
-                            if !StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index) {
-                                if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: ch.url, referer: bookUrl),
-                                   let text = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
-                                   text.count >= 50 {
-                                    StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: text)
-                                }
-                            }
+                            guard !Task.isCancelled else { return false }
+                            if StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index,
+                                                                      chapterURL: ch.url, sourceURL: source.bookSourceUrl) { return true }
+                            let nextURL = ch.index + 1 < completeTOC.count ? completeTOC[ch.index + 1].url : nil
+                            do {
+                                let content = try await ChapterContentLoader.shared.load(chapter: ch, source: source,
+                                                                                       referer: bookUrl, nextChapterURL: nextURL)
+                                try Task.checkCancellation()
+                                return StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: content)
+                            } catch { return false }
                         }
                     }
+                    var saved = 0
+                    for await success in group { if success { saved += 1 } }
+                    return saved
                 }
-                completed = chunkEnd
+                completed += savedCount
                 let currentDone = completed
                 let pct = Int(Double(currentDone) / Double(max(1, total)) * 100.0)
                 await MainActor.run {
-                    self.cacheProgressText = "已缓存 \(currentDone)/\(total) 章 (\(pct)%)"
+                    self.cacheProgressText = "已成功缓存 \(currentDone)/\(total) 章 (\(pct)%)"
                 }
             }
             guard !Task.isCancelled else { return }
+            let savedTotal = completed
             await MainActor.run {
                 self.isCachingChapters = false
-                self.cacheProgressText = "缓存完成 (\(total) 章已离线就绪)"
+                self.cacheProgressText = savedTotal == total ? "缓存完成（\(total) 章完整就绪）" : "缓存未完成：成功 \(savedTotal)/\(total) 章，请重试失败章节"
             }
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             await MainActor.run {

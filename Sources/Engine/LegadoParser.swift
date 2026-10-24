@@ -276,7 +276,7 @@ public class LegadoParser {
         }
         
         // Strip Legado trailing options like ,{'webView':true}
-        if let commaOpt = result.range(of: ",{") {
+        if isUrlAttr, let commaOpt = result.range(of: ",{") {
             result = String(result[..<commaOpt.lowerBound])
         }
         
@@ -533,7 +533,7 @@ public class LegadoParser {
                     }
                 }
                 let cleaned = cleanNovelText(raw)
-                if cleaned.count >= 50 {
+                if !cleaned.isEmpty {
                     return cleaned
                 }
             }
@@ -548,13 +548,13 @@ public class LegadoParser {
         for rule in fallbackRules {
             if let raw = extractValue(from: doc, rule: rule, baseUrl: baseUrl) {
                 let cleaned = cleanNovelText(raw)
-                if cleaned.count >= 80 {
+                if !cleaned.isEmpty {
                     return cleaned
                 }
             }
         }
         
-        return "未能解析章节正文，请点击右上角「换源」切换其他书源或点击刷新重试。"
+        throw ChapterLoadingError.missingContent
     }
     
     // MARK: - Clean HTML to Reader Prose (Paragraph-Preserving)
@@ -607,7 +607,9 @@ public class LegadoParser {
                 .replacingOccurrences(of: "\u{00A0}", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            if adKeywords.contains(where: { trimmed.contains($0) && trimmed.count < 70 }) {
+            // Do not erase narrative sentences merely because they mention reading on a phone.
+            let pagingNotice = trimmed.range(of: "^(?:本章未完[，,。]?\\s*)?(?:请|請)?(?:点击|點擊)?下一[页頁](?:继续阅读|繼續閱讀)[。.!！]?$", options: .regularExpression) != nil
+            if pagingNotice || adKeywords.contains(where: { trimmed == $0 || trimmed == $0 + "。" }) {
                 continue
             }
             formattedLines.append("　　" + trimmed)

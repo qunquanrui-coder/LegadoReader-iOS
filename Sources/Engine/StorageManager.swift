@@ -26,7 +26,7 @@ public class StorageManager: ObservableObject {
     public let cacheDirectoryURL: URL = {
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        var dir = base.appendingPathComponent("NovelCache_v3", isDirectory: true)
+        var dir = base.appendingPathComponent("NovelCache_v4_complete", isDirectory: true)
         if !fm.fileExists(atPath: dir.path) {
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
@@ -43,20 +43,14 @@ public class StorageManager: ObservableObject {
         return cacheDirectoryURL
     }
     
-    /// One-time migration of chapter caches from the old Documents/ location
+    /// Legacy caches have no completeness metadata and must be downloaded again.
     private func migrateLegacyCacheIfNeeded() {
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        for legacyName in ["NovelCache_v2_1", "NovelCache"] {
-            let legacy = docs.appendingPathComponent(legacyName, isDirectory: true)
-            guard fileManager.fileExists(atPath: legacy.path) else { continue }
-            if let items = try? fileManager.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil) {
-                for item in items {
-                    let dest = cacheDirectoryURL.appendingPathComponent(item.lastPathComponent)
-                    if !fileManager.fileExists(atPath: dest.path) {
-                        try? fileManager.moveItem(at: item, to: dest)
-                    }
-                }
-            }
+        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let legacyDirectories = [docs.appendingPathComponent("NovelCache_v2_1"),
+                                 docs.appendingPathComponent("NovelCache"),
+                                 support.appendingPathComponent("NovelCache_v3")]
+        for legacy in legacyDirectories {
             try? fileManager.removeItem(at: legacy)
         }
     }
@@ -403,23 +397,22 @@ public class StorageManager: ObservableObject {
     }
     
     // MARK: - Chapter Cache Operations
-    public func getCachedChapter(bookId: String, chapterIndex: Int) -> String? {
-        let filePath = cacheDirectory.appendingPathComponent(bookId).appendingPathComponent("\(chapterIndex).txt")
-        return try? String(contentsOf: filePath, encoding: .utf8)
+    public func getCachedChapter(bookId: String, chapterIndex: Int, chapterURL: String, sourceURL: String) -> String? {
+        ChapterContentCache(directory: cacheDirectory).read(bookId: bookId, chapterIndex: chapterIndex,
+                                                           chapterURL: chapterURL, sourceURL: sourceURL)
     }
     
-    public func isChapterCached(bookId: String, chapterIndex: Int) -> Bool {
-        let filePath = cacheDirectory.appendingPathComponent(bookId).appendingPathComponent("\(chapterIndex).txt")
-        return fileManager.fileExists(atPath: filePath.path)
+    public func isChapterCached(bookId: String, chapterIndex: Int, chapterURL: String? = nil, sourceURL: String? = nil) -> Bool {
+        ChapterContentCache(directory: cacheDirectory).read(bookId: bookId, chapterIndex: chapterIndex,
+                                                           chapterURL: chapterURL, sourceURL: sourceURL) != nil
     }
     
-    public func saveChapterCache(bookId: String, chapterIndex: Int, content: String) {
-        let bookDir = cacheDirectory.appendingPathComponent(bookId)
-        if !fileManager.fileExists(atPath: bookDir.path) {
-            try? fileManager.createDirectory(at: bookDir, withIntermediateDirectories: true)
+    @discardableResult
+    public func saveChapterCache(bookId: String, chapterIndex: Int, content: CompleteChapterContent) -> Bool {
+        if let shelfBook = bookshelf.first(where: { $0.id == bookId }), shelfBook.sourceUrl != content.sourceURL {
+            return false
         }
-        let filePath = bookDir.appendingPathComponent("\(chapterIndex).txt")
-        try? content.write(to: filePath, atomically: true, encoding: .utf8)
+        return ChapterContentCache(directory: cacheDirectory).save(content, bookId: bookId, chapterIndex: chapterIndex)
     }
     
     public func saveConfig() {

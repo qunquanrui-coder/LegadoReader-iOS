@@ -371,21 +371,26 @@ public struct BookDetailView: View {
                 let chunkEnd = min(total, chunkStart + chunkSize)
                 let slice = Array(allChapters[chunkStart..<chunkEnd])
                 
-                await withTaskGroup(of: Void.self) { group in
+                let savedCount = await withTaskGroup(of: Bool.self) { group -> Int in
                     for ch in slice {
                         group.addTask {
-                            guard !Task.isCancelled else { return }
-                            if !StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index) {
-                                if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: ch.url, referer: bookUrl),
-                                   let text = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
-                                   text.count >= 50 {
-                                    StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: text)
-                                }
-                            }
+                            guard !Task.isCancelled else { return false }
+                            if StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index,
+                                                                      chapterURL: ch.url, sourceURL: source.bookSourceUrl) { return true }
+                            let nextURL = ch.index + 1 < allChapters.count ? allChapters[ch.index + 1].url : nil
+                            do {
+                                let content = try await ChapterContentLoader.shared.load(chapter: ch, source: source,
+                                                                                       referer: bookUrl, nextChapterURL: nextURL)
+                                try Task.checkCancellation()
+                                return StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: content)
+                            } catch { return false }
                         }
                     }
+                    var saved = 0
+                    for await success in group { if success { saved += 1 } }
+                    return saved
                 }
-                completed = chunkEnd
+                completed += savedCount
                 let doneNow = completed
                 let pct = Int(Double(doneNow) / Double(max(1, total)) * 100.0)
                 await MainActor.run {
@@ -393,9 +398,10 @@ public struct BookDetailView: View {
                 }
             }
             guard !Task.isCancelled else { return }
+            let savedTotal = completed
             await MainActor.run {
                 self.isCachingFullBook = false
-                self.fullCacheStatusText = "全本 \(total) 章已全部缓存完成，支持纯离线阅读！"
+                self.fullCacheStatusText = savedTotal == total ? "全本 \(total) 章完整缓存完成" : "缓存未完成：成功 \(savedTotal)/\(total) 章，请重试失败章节"
             }
         }
     }
