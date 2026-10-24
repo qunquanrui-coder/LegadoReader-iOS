@@ -20,8 +20,109 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     public var onParagraphChanged: ((Int) -> Void)?
     public var onChapterFinished: (() -> Void)?
     
-    private var currentBookTitle: String = "风读小说"
-    private var currentChapterTitle: String = "正在朗读"
+    @Published public private(set) var currentBookTitle: String = "风读小说"
+    @Published public private(set) var currentChapterTitle: String = "正在朗读"
+    
+    /// Book / TOC / chapter currently being read aloud.
+    /// Lets the engine keep advancing chapters on its own after the reader page is closed.
+    public struct ReadingContext {
+        public var book: Book
+        public var chapters: [Chapter]
+        public var chapterIndex: Int
+    }
+    @Published public private(set) var context: ReadingContext?
+    private var detachedAdvanceTask: Task<Void, Never>?
+    
+    public func setContext(book: Book, chapters: [Chapter], chapterIndex: Int) {
+        guard !chapters.isEmpty else { return }
+        context = ReadingContext(book: book, chapters: chapters, chapterIndex: chapterIndex)
+    }
+    
+    /// Called by the reader page when it is closed: callbacks referencing the closed page are dropped,
+    /// and the engine continues on its own using `context`.
+    public func detachReader() {
+        onParagraphChanged = nil
+        onChapterFinished = nil
+    }
+    
+    /// Play / pause without needing the paragraph list (used by bookshelf mini player & lock screen)
+    public func resumeOrPause() {
+        guard isSpeaking, !paragraphs.isEmpty else { return }
+        togglePlayPause(paragraphs: paragraphs, currentIndex: currentParagraphIndex)
+    }
+    
+    private func handleChapterFinished() {
+        renewBackgroundTaskAssertion()
+        startKeepAliveAudio()
+        if let callback = onChapterFinished {
+            callback()
+        } else {
+            advanceChapterDetached()
+        }
+    }
+    
+    private func saveDetachedProgress(paragraphIndex: Int) {
+        guard let ctx = context, ctx.chapterIndex < ctx.chapters.count else { return }
+        StorageManager.shared.updateBookProgress(
+            bookId: ctx.book.id,
+            bookTitle: ctx.book.title,
+            bookAuthor: ctx.book.author,
+            chapterIndex: ctx.chapterIndex,
+            chapterTitle: ctx.chapters[ctx.chapterIndex].title,
+            totalChapters: ctx.chapters.count,
+            paragraphIndex: paragraphIndex
+        )
+    }
+    
+    /// Loads the next chapter (cache first, then network) and continues reading — no reader page required
+    private func advanceChapterDetached() {
+        guard let baseCtx = context else { stop(); return }
+        let nextIdx = baseCtx.chapterIndex + 1
+        guard nextIdx < baseCtx.chapters.count else { stop(); return }
+        let chapter = baseCtx.chapters[nextIdx]
+        let book = baseCtx.book
+        
+        isLoadingAudio = true
+        detachedAdvanceTask?.cancel()
+        detachedAdvanceTask = Task { [weak self] in
+            guard let self = self else { return }
+            let storage = StorageManager.shared
+            var text: String? = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index)
+            if text == nil {
+                let source = await MainActor.run {
+                    storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
+                        ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
+                }
+                if let (html, finalUrl) = try? await NetworkManager.shared.fetchString(from: chapter.url, referer: book.bookUrl),
+                   let parsed = try? LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source),
+                   !parsed.isEmpty {
+                    storage.saveChapterCache(bookId: book.id, chapterIndex: chapter.index, content: parsed)
+                    text = parsed
+                }
+            }
+            guard !Task.isCancelled else { return }
+            let loadedText = text
+            await MainActor.run {
+                self.isLoadingAudio = false
+                // A reader page may have re-attached while we were loading — let it take over
+                if let callback = self.onChapterFinished {
+                    callback()
+                    return
+                }
+                guard self.isSpeaking, let content = loadedText else {
+                    self.stop()
+                    return
+                }
+                let paras = ChapterTextFormatter.paragraphs(from: content, config: storage.readerConfig)
+                guard !paras.isEmpty else { self.stop(); return }
+                var newCtx = baseCtx
+                newCtx.chapterIndex = nextIdx
+                self.context = newCtx
+                self.saveDetachedProgress(paragraphIndex: 0)
+                self.startReading(paragraphs: paras, fromIndex: 0, bookTitle: book.title, chapterTitle: chapter.title)
+            }
+        }
+    }
     
     private let synthesizer = AVSpeechSynthesizer()
     private var audioPlayer: AVAudioPlayer?
@@ -305,6 +406,8 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     public func stop() {
+        detachedAdvanceTask?.cancel()
+        detachedAdvanceTask = nil
         stopCurrentPlaybackOnly()
         stopKeepAliveAudio()
         endBackgroundTaskAssertion()
@@ -346,7 +449,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
             startReading(paragraphs: paragraphs, fromIndex: currentParagraphIndex + 1)
         } else {
             renewBackgroundTaskAssertion()
-            onChapterFinished?()
+            handleChapterFinished()
         }
     }
     
@@ -398,7 +501,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         guard index >= 0 && index < paragraphs.count else {
             DispatchQueue.main.async {
                 self.isLoadingAudio = false
-                self.onChapterFinished?()
+                self.handleChapterFinished()
             }
             return
         }
@@ -415,7 +518,11 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         DispatchQueue.main.async {
             self.currentParagraphIndex = index
             self.updateNowPlayingInfo()
-            self.onParagraphChanged?(index)
+            if let callback = self.onParagraphChanged {
+                callback(index)
+            } else {
+                self.saveDetachedProgress(paragraphIndex: index)
+            }
         }
         
         let voice = selectedVoice
@@ -536,7 +643,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
             speakParagraph(at: nextIndex)
         } else {
             DispatchQueue.main.async {
-                self.onChapterFinished?()
+                self.handleChapterFinished()
             }
         }
     }

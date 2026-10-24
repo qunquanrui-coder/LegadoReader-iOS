@@ -12,9 +12,16 @@ public enum ChapterCacheScope {
     case entireBook
 }
 
+/// Mutable reference box used to throttle progress writes without triggering SwiftUI re-renders
+final class ProgressSaveThrottle {
+    var lastSave: Date = .distantPast
+    var pending: DispatchWorkItem?
+}
+
 public struct ReaderView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var storage = StorageManager.shared
     @ObservedObject var speech = SpeechSynthesizerManager.shared
     
@@ -64,76 +71,31 @@ public struct ReaderView: View {
         return chapters[currentChapterIndex]
     }
     
-    /// Splits chapter content into clean, distinct paragraphs with custom purification & Chinese conversion applied
-    private var formattedParagraphs: [String] {
-        guard !currentContent.isEmpty else { return [] }
-        let normalized = currentContent
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\u{3000}\u{3000}", with: "\n")
-            .replacingOccurrences(of: "\u{00A0}\u{00A0}", with: "\n")
-        
-        let customRules = storage.readerConfig.effectivePurifyRules
-        let converter = storage.readerConfig.effectiveChineseConversion
-        
-        var rawList = normalized
-            .components(separatedBy: .newlines)
-            .map { line -> String in
-                var cleaned = line
-                    .replacingOccurrences(of: "\u{3000}", with: " ")
-                    .replacingOccurrences(of: "\u{00A0}", with: " ")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                for rule in customRules where !rule.isEmpty {
-                    cleaned = cleaned.replacingOccurrences(of: rule, with: "")
-                }
-                return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .filter { !$0.isEmpty }
-        
-        if rawList.count <= 3 && currentContent.count > 250 {
-            var smartSplit: [String] = []
-            for block in rawList {
-                let withDialogueBreaks = block.replacingOccurrences(
-                    of: "([。！？…][”」』】])",
-                    with: "$1\n",
-                    options: .regularExpression
-                )
-                for sub in withDialogueBreaks.components(separatedBy: .newlines) {
-                    let s = sub.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !s.isEmpty else { continue }
-                    if s.count > 160 {
-                        let sentences = s.replacingOccurrences(of: "([。！？])(?=[^”」』】])", with: "$1\n", options: .regularExpression)
-                            .components(separatedBy: .newlines)
-                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                            .filter { !$0.isEmpty }
-                        var buffer = ""
-                        for sent in sentences {
-                            buffer += sent
-                            if buffer.count >= 85 {
-                                smartSplit.append(buffer)
-                                buffer = ""
-                            }
-                        }
-                        if !buffer.isEmpty { smartSplit.append(buffer) }
-                    } else {
-                        smartSplit.append(s)
-                    }
-                }
-            }
-            if smartSplit.count > rawList.count {
-                rawList = smartSplit
-            }
-        }
-        
-        return rawList.map { "　　" + converter.convert($0) }
+    /// Cached paragraphs of the current chapter — rebuilt only when content or purify/convert config changes,
+    /// instead of re-running regex splitting & Chinese conversion on every SwiftUI render.
+    @State private var formattedParagraphs: [String] = []
+    /// Cached screen-sized pages for horizontal / Duo modes — rebuilt only when paragraphs or font config changes.
+    @State private var paginatedPages: [[PaginatedParagraph]] = []
+    /// Reference holder for progress-save throttling (mutating it never triggers a re-render).
+    @State private var progressSaver = ProgressSaveThrottle()
+    
+    private func applyChapterContent(_ text: String) {
+        currentContent = text
+        rebuildLayout()
     }
     
-    /// Slices `formattedParagraphs` into screen-sized pages for horizontal page-turning mode
-    private var paginatedPages: [[PaginatedParagraph]] {
-        let paras = formattedParagraphs
+    private func rebuildLayout() {
+        let paras = ChapterTextFormatter.paragraphs(from: currentContent, config: storage.readerConfig)
+        formattedParagraphs = paras
+        paginatedPages = Self.buildPages(paragraphs: paras, config: storage.readerConfig)
+    }
+    
+    /// Slices paragraphs into screen-sized pages for horizontal page-turning mode
+    private static func buildPages(paragraphs paras: [String], config: ReaderConfig) -> [[PaginatedParagraph]] {
         guard !paras.isEmpty else { return [] }
         
-        let fontFactor = max(14.0, Double(storage.readerConfig.fontSize))
-        let spacingFactor = max(4.0, Double(storage.readerConfig.lineSpacing))
+        let fontFactor = max(14.0, Double(config.fontSize))
+        let spacingFactor = max(4.0, Double(config.lineSpacing))
         let charsPerLine = max(14, Int(340.0 / fontFactor))
         let linesPerPage = max(12, Int(560.0 / (fontFactor + spacingFactor * 0.85)))
         let maxLinesBudget = linesPerPage
@@ -307,7 +269,21 @@ public struct ReaderView: View {
             initializeReader()
         }
         .onDisappear {
-            saveProgress()
+            saveProgress(force: true)
+            // Hand TTS over to the engine so it keeps reading & auto-advancing chapters after the page closes
+            if speech.isSpeaking,
+               let ctx = speech.context,
+               ctx.book.title == book.title && ctx.book.author == book.author {
+                speech.detachReader()
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active {
+                saveProgress(force: true)
+            }
+        }
+        .onChange(of: storage.readerConfig) { _ in
+            rebuildLayout()
         }
         .sheet(isPresented: $showChapterList) {
             ChapterListView(
@@ -324,6 +300,16 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
+                activeCacheTask?.cancel()
+                isCachingChapters = false
+                cacheProgressText = nil
+                // Paragraphs being read aloud came from the old source — stop them
+                if speech.isSpeaking,
+                   let ctx = speech.context,
+                   ctx.book.title == book.title && ctx.book.author == book.author {
+                    speech.stop()
+                    showTTSBar = false
+                }
                 self.book = newBook
                 initializeReader()
             }
@@ -994,7 +980,7 @@ public struct ReaderView: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             Button {
-                saveProgress()
+                saveProgress(force: true)
                 dismiss()
             } label: {
                 Image(systemName: "chevron.left")
@@ -1180,7 +1166,7 @@ public struct ReaderView: View {
                 Button {
                     showHUD = false
                     showTTSBar = true
-                    setupSpeechCallbacks()
+                    setupSpeechCallbacks(force: true)
                     if !speech.isSpeaking {
                         speech.startReading(
                             paragraphs: formattedParagraphs,
@@ -1245,7 +1231,19 @@ public struct ReaderView: View {
     }
     
     // MARK: - Logic
-    private func setupSpeechCallbacks() {
+    /// True when the TTS engine is idle, or is currently reading THIS book
+    private var ownsSpeech: Bool {
+        guard speech.isSpeaking, let ctx = speech.context else { return true }
+        return ctx.book.title == book.title && ctx.book.author == book.author
+    }
+    
+    /// Attaches this reader page to the TTS engine. When another book is being read aloud in the
+    /// background, the reader leaves it alone unless `force` is set (user tapped 听书 here).
+    private func setupSpeechCallbacks(force: Bool = false) {
+        guard force || ownsSpeech else { return }
+        if !chapters.isEmpty {
+            speech.setContext(book: book, chapters: chapters, chapterIndex: currentChapterIndex)
+        }
         speech.updateNowPlayingMetadata(
             bookTitle: book.title,
             chapterTitle: currentChapter?.title ?? book.title
@@ -1286,6 +1284,33 @@ public struct ReaderView: View {
                         self.isLoading = false
                     } else {
                         self.chapters = parsedChapters
+                        // After a source switch, chapter numbering differs between sites —
+                        // re-locate the current chapter by its title in the new TOC.
+                        if let relocateTitle = self.storage.consumePendingRelocation(for: self.book) {
+                            if let matched = ChapterTextFormatter.bestMatchIndex(
+                                title: relocateTitle,
+                                in: parsedChapters,
+                                nearIndex: self.currentChapterIndex
+                            ), matched >= 0, matched < parsedChapters.count {
+                                self.currentChapterIndex = matched
+                                withAnimation {
+                                    self.restoreToastMessage = "换源成功，已定位到「\(parsedChapters[matched].title)」"
+                                }
+                            } else {
+                                self.currentChapterIndex = min(self.currentChapterIndex, parsedChapters.count - 1)
+                                withAnimation {
+                                    self.restoreToastMessage = "新书源未找到同名章节，已定位到相近位置"
+                                }
+                            }
+                            self.currentPageIndex = 0
+                            self.currentSpreadIndex = 0
+                            self.visibleParagraphIndices.removeAll()
+                            self.targetRestoreParagraph = self.currentParagraphIndex > 0 ? self.currentParagraphIndex : nil
+                            self.isRestoringPosition = self.currentParagraphIndex > 0
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                withAnimation { self.restoreToastMessage = nil }
+                            }
+                        }
                         if self.currentChapterIndex >= parsedChapters.count {
                             self.currentChapterIndex = 0
                             self.currentParagraphIndex = 0
@@ -1323,11 +1348,11 @@ public struct ReaderView: View {
         guard let chapter = currentChapter else { return }
         
         if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index) {
-            self.currentContent = cached
+            self.applyChapterContent(cached)
             self.isLoading = false
             self.errorMessage = nil
             self.restorePageFromParagraphIfNeeded()
-            self.saveProgress()
+            self.saveProgress(force: true)
             self.setupSpeechCallbacks()
             self.prefetchNextChapter()
             if autoContinueTTS {
@@ -1353,11 +1378,11 @@ public struct ReaderView: View {
                 let text = try LegadoParser.shared.parseContent(html: html, baseUrl: finalUrl, source: source)
                 
                 await MainActor.run {
-                    self.currentContent = text
+                    self.applyChapterContent(text)
                     self.isLoading = false
                     self.storage.saveChapterCache(bookId: self.book.id, chapterIndex: chapter.index, content: text)
                     self.restorePageFromParagraphIfNeeded()
-                    self.saveProgress()
+                    self.saveProgress(force: true)
                     self.setupSpeechCallbacks()
                     self.prefetchNextChapter()
                     if autoContinueTTS {
@@ -1479,17 +1504,42 @@ public struct ReaderView: View {
         }
     }
     
-    private func saveProgress() {
-        if let ch = currentChapter {
-            storage.updateBookProgress(
-                bookId: book.id,
-                bookTitle: book.title,
-                bookAuthor: book.author,
-                chapterIndex: currentChapterIndex,
-                chapterTitle: ch.title,
-                totalChapters: chapters.count,
-                paragraphIndex: currentParagraphIndex
+    private func saveProgress(force: Bool = false) {
+        guard let ch = currentChapter else { return }
+        let bookId = book.id
+        let bookTitle = book.title
+        let bookAuthor = book.author
+        let chIdx = currentChapterIndex
+        let chTitle = ch.title
+        let totalCh = chapters.count
+        let paraIdx = currentParagraphIndex
+        
+        let commitSave = {
+            StorageManager.shared.updateBookProgress(
+                bookId: bookId,
+                bookTitle: bookTitle,
+                bookAuthor: bookAuthor,
+                chapterIndex: chIdx,
+                chapterTitle: chTitle,
+                totalChapters: totalCh,
+                paragraphIndex: paraIdx
             )
+        }
+        
+        progressSaver.pending?.cancel()
+        progressSaver.pending = nil
+        
+        let now = Date()
+        if force || now.timeIntervalSince(progressSaver.lastSave) >= 1.2 {
+            progressSaver.lastSave = now
+            commitSave()
+        } else {
+            let work = DispatchWorkItem { [weak progressSaver] in
+                progressSaver?.lastSave = Date()
+                commitSave()
+            }
+            progressSaver.pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
         }
     }
 }

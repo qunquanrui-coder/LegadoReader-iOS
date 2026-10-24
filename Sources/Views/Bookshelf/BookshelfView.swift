@@ -3,6 +3,7 @@ import SwiftUI
 public struct BookshelfView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject var storage = StorageManager.shared
+    @ObservedObject var speech = SpeechSynthesizerManager.shared
     @State private var selectedBook: Book?
     @State private var showingSearch = false
     @State private var isGridView = true
@@ -110,6 +111,13 @@ public struct BookshelfView: View {
                 }
             }
             .background(Color(.systemGroupedBackground))
+            .safeAreaInset(edge: .bottom) {
+                if speech.isSpeaking {
+                    miniTTSPlayerBar
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                }
+            }
             .navigationTitle("风读 · 书架")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -136,6 +144,64 @@ public struct BookshelfView: View {
                 ReaderView(book: book)
             }
         }
+    }
+    
+    // MARK: - Detached Mini TTS Player Bar
+    private var miniTTSPlayerBar: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "waveform.circle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.indigo)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(speech.currentBookTitle) · \(speech.selectedVoice.shortName)")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(speech.currentChapterTitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if let ctx = speech.context {
+                    openBook(ctx.book)
+                } else if let recent = storage.mostRecentBook {
+                    openBook(recent)
+                }
+            }
+            
+            Button {
+                speech.resumeOrPause()
+            } label: {
+                Image(systemName: speech.isPaused ? "play.circle.fill" : "pause.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(.indigo)
+            }
+            
+            Button {
+                speech.skipNext()
+            } label: {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+            }
+            
+            Button {
+                speech.stop()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
     }
     
     // MARK: - Hero Continue Reading Banner

@@ -17,15 +17,110 @@ public class StorageManager: ObservableObject {
     private let positionMapKey = "LegadoReader_PositionMap_v3_1"
     private let chapterTitleMapKey = "LegadoReader_ChapterTitleMap_v3_2"
     private let lastReadBookIdKey = "LegadoReader_LastReadBookId_v3_2"
+    private let pendingRelocationKey = "LegadoReader_PendingRelocation_v3_2_1"
     
     private let fileManager = FileManager.default
-    private var cacheDirectory: URL {
-        let urls = fileManager.urls(for: .documentDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("NovelCache_v2_1", isDirectory: true)
-        if !fileManager.fileExists(atPath: dir.path) {
-            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+    
+    /// Chapter cache lives in Library/Application Support (excluded from iCloud backup),
+    /// instead of Documents which would silently consume the user's iCloud storage.
+    public let cacheDirectoryURL: URL = {
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        var dir = base.appendingPathComponent("NovelCache_v3", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? dir.setResourceValues(values)
         return dir
+    }()
+    
+    private var cacheDirectory: URL {
+        if !fileManager.fileExists(atPath: cacheDirectoryURL.path) {
+            try? fileManager.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
+        }
+        return cacheDirectoryURL
+    }
+    
+    /// One-time migration of chapter caches from the old Documents/ location
+    private func migrateLegacyCacheIfNeeded() {
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        for legacyName in ["NovelCache_v2_1", "NovelCache"] {
+            let legacy = docs.appendingPathComponent(legacyName, isDirectory: true)
+            guard fileManager.fileExists(atPath: legacy.path) else { continue }
+            if let items = try? fileManager.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil) {
+                for item in items {
+                    let dest = cacheDirectoryURL.appendingPathComponent(item.lastPathComponent)
+                    if !fileManager.fileExists(atPath: dest.path) {
+                        try? fileManager.moveItem(at: item, to: dest)
+                    }
+                }
+            }
+            try? fileManager.removeItem(at: legacy)
+        }
+    }
+    
+    /// Total size of all cached chapters in bytes
+    public func chapterCacheSizeBytes() -> Int64 {
+        var total: Int64 = 0
+        if let enumerator = fileManager.enumerator(at: cacheDirectoryURL, includingPropertiesForKeys: [.fileSizeKey]) {
+            for case let fileURL as URL in enumerator {
+                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    total += Int64(size)
+                }
+            }
+        }
+        return total
+    }
+    
+    /// Removes every cached chapter (bookshelf & reading progress are kept)
+    public func clearAllChapterCache() {
+        if let items = try? fileManager.contentsOfDirectory(at: cacheDirectoryURL, includingPropertiesForKeys: nil) {
+            for item in items {
+                try? fileManager.removeItem(at: item)
+            }
+        }
+    }
+    
+    /// Removes cached chapters of a single book (used after switching book source)
+    public func clearChapterCache(bookId: String) {
+        try? fileManager.removeItem(at: cacheDirectoryURL.appendingPathComponent(bookId))
+    }
+    
+    private static func bookKey(title: String, author: String) -> String {
+        "\(title.trimmingCharacters(in: .whitespacesAndNewlines))_\(author.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+    
+    /// Returns the last saved chapter title of a book (if any)
+    public func savedChapterTitle(for book: Book) -> String? {
+        let key = Self.bookKey(title: book.title, author: book.author)
+        if let map = UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String],
+           let t = map[key], !t.isEmpty {
+            return t
+        }
+        if let shelfBook = bookshelf.first(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }),
+           let t = shelfBook.currentChapterTitle, !t.isEmpty {
+            return t
+        }
+        return book.currentChapterTitle
+    }
+    
+    /// After a source switch, the reader must re-locate the current chapter by title in the new TOC.
+    /// Returns (and clears) the chapter title to re-locate, if a source switch happened.
+    public func consumePendingRelocation(for book: Book) -> String? {
+        let key = Self.bookKey(title: book.title, author: book.author)
+        var map = (UserDefaults.standard.dictionary(forKey: pendingRelocationKey) as? [String: String]) ?? [:]
+        guard let title = map.removeValue(forKey: key) else { return nil }
+        UserDefaults.standard.set(map, forKey: pendingRelocationKey)
+        return title
+    }
+    
+    private func setPendingRelocation(for book: Book, chapterTitle: String) {
+        let key = Self.bookKey(title: book.title, author: book.author)
+        var map = (UserDefaults.standard.dictionary(forKey: pendingRelocationKey) as? [String: String]) ?? [:]
+        map[key] = chapterTitle
+        UserDefaults.standard.set(map, forKey: pendingRelocationKey)
     }
     
     /// Returns the most recently read book for the top "最近阅读" card on the bookshelf
@@ -38,6 +133,7 @@ public class StorageManager: ObservableObject {
     }
     
     private init() {
+        migrateLegacyCacheIfNeeded()
         loadData()
     }
     
@@ -145,6 +241,7 @@ public class StorageManager: ObservableObject {
     }
     
     public func replaceBookSource(for book: Book, with newBook: Book) -> Book {
+        let sourceChanged = (book.sourceUrl != newBook.sourceUrl) || (book.bookUrl != newBook.bookUrl)
         var updated = book
         updated.sourceUrl = newBook.sourceUrl
         updated.sourceName = newBook.sourceName
@@ -152,22 +249,38 @@ public class StorageManager: ObservableObject {
         if let latest = newBook.latestChapter, !latest.isEmpty {
             updated.latestChapter = latest
         }
+        if sourceChanged {
+            // Old cached chapters belong to the previous source's TOC numbering — they must not be reused.
+            clearChapterCache(bookId: book.id)
+            if let shelfBook = bookshelf.first(where: { $0.title == book.title && $0.author == book.author }), shelfBook.id != book.id {
+                clearChapterCache(bookId: shelfBook.id)
+            }
+            if let chapterTitle = savedChapterTitle(for: book), !chapterTitle.isEmpty {
+                setPendingRelocation(for: book, chapterTitle: chapterTitle)
+            }
+        }
         if let idx = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
-            bookshelf[idx] = updated
+            bookshelf[idx].sourceUrl = updated.sourceUrl
+            bookshelf[idx].sourceName = updated.sourceName
+            bookshelf[idx].bookUrl = updated.bookUrl
+            if let latest = updated.latestChapter { bookshelf[idx].latestChapter = latest }
+            updated.id = bookshelf[idx].id
             saveBookshelf()
         }
         return updated
     }
     
     public func removeBookFromShelf(_ book: Book) {
+        let removedIds = bookshelf.filter { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }.map { $0.id }
         bookshelf.removeAll(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) })
-        if lastReadBookId == book.id {
+        if let last = lastReadBookId, removedIds.contains(last) || last == book.id {
             lastReadBookId = bookshelf.max(by: { $0.lastReadTime < $1.lastReadTime })?.id
             UserDefaults.standard.set(lastReadBookId, forKey: lastReadBookIdKey)
         }
         saveBookshelf()
-        let bookDir = cacheDirectory.appendingPathComponent(book.id)
-        try? fileManager.removeItem(at: bookDir)
+        for id in Set(removedIds + [book.id]) {
+            clearChapterCache(bookId: id)
+        }
     }
     
     public func updateBookProgress(

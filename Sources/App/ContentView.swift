@@ -34,6 +34,10 @@ struct SettingsView: View {
     @State private var cacheSizeStr = "计算中..."
     @State private var showClearAlert = false
     
+    private var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "3.2.1"
+    }
+    
     var body: some View {
         NavigationStack {
             Form {
@@ -58,8 +62,8 @@ struct SettingsView: View {
                             Text(ReaderConfig.isDuoEditionBuild ? "风读小说 · iPhone Duo 专享版" : "风读小说 · 纯净阅读版")
                                 .font(.system(size: 18, weight: .bold, design: .serif))
                             Text(ReaderConfig.isDuoEditionBuild
-                                 ? "v3.2.0 · 支持 5.4\" 外屏 & 7.6\" 折叠内屏双页对开 · 锁屏听书"
-                                 : "v3.2.0 · 真人情感语音锁屏听书 · 全本离线缓存")
+                                 ? "v\(appVersion) · 支持 5.4\" 外屏 & 7.6\" 折叠内屏双页对开 · 锁屏听书"
+                                 : "v\(appVersion) · 真人情感语音锁屏听书 · 全本离线缓存")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -140,29 +144,13 @@ struct SettingsView: View {
     }
     
     private func calculateCacheSize() {
-        let fileManager = FileManager.default
-        let urls = fileManager.urls(for: .documentDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("NovelCache_v2_1")
-        
-        var totalSize: Int64 = 0
-        if let enumerator = fileManager.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) {
-            for case let fileURL as URL in enumerator {
-                if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
-                   let fileSize = resourceValues.fileSize {
-                    totalSize += Int64(fileSize)
-                }
-            }
-        }
-        
-        let mb = Double(totalSize) / (1024 * 1024)
+        let total = storage.chapterCacheSizeBytes()
+        let mb = Double(total) / (1024 * 1024)
         cacheSizeStr = String(format: "%.2f MB", mb)
     }
     
     private func clearCache() {
-        let fileManager = FileManager.default
-        let urls = fileManager.urls(for: .documentDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("NovelCache_v2_1")
-        try? fileManager.removeItem(at: dir)
+        storage.clearAllChapterCache()
         calculateCacheSize()
     }
 }
