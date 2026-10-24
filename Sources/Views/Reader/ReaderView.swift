@@ -1747,6 +1747,9 @@ public struct ReaderView: View {
         let completeTOC = chapters
         let targetChapters = Array(chapters[startIdx...endIdx])
         let total = targetChapters.count
+        // Completeness is part of the download snapshot: a TOC refresh during the run must not
+        // let this (possibly partial) download report a complete book.
+        let tocCompleteSnapshot = isTocComplete
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         let bookId = book.id
@@ -1796,7 +1799,7 @@ public struct ReaderView: View {
             await MainActor.run {
                 self.isCachingChapters = false
                 if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
-                                                       tocComplete: self.isTocComplete) {
+                                                       tocComplete: tocCompleteSnapshot) {
                     self.cacheProgressText = "缓存完成（\(total) 章完整就绪）"
                 } else if savedTotal == total {
                     self.cacheProgressText = "已缓存当前获取的 \(total) 章，但目录尚不完整，无法确认全本"

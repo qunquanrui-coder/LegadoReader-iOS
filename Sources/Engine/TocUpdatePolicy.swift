@@ -27,6 +27,15 @@ public enum TocUpdatePolicy {
     public static func isFullCacheComplete(savedCount: Int, totalCount: Int, tocComplete: Bool) -> Bool {
         tocComplete && totalCount > 0 && savedCount == totalCount
     }
+
+    /// True when the cached chapter list belongs to another book/source and must be dropped
+    /// (e.g. after a book-source switch) instead of being shown as the new source's catalogue.
+    public static func requiresTocReset(loadedSourceUrl: String?,
+                                        loadedBookUrl: String?,
+                                        currentSourceUrl: String,
+                                        currentBookUrl: String) -> Bool {
+        loadedSourceUrl != currentSourceUrl || loadedBookUrl != currentBookUrl
+    }
 }
 
 /// Rules for restarting TTS after an asynchronous chapter load.

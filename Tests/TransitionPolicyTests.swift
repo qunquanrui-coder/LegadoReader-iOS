@@ -38,6 +38,21 @@ final class TocUpdatePolicyTests: XCTestCase {
         XCTAssertFalse(TocUpdatePolicy.isFullCacheComplete(savedCount: 99, totalCount: 100, tocComplete: true))
         XCTAssertFalse(TocUpdatePolicy.isFullCacheComplete(savedCount: 0, totalCount: 0, tocComplete: true))
     }
+
+    func testTocStateResetsWhenSourceIdentityChanges() {
+        XCTAssertTrue(TocUpdatePolicy.requiresTocReset(loadedSourceUrl: nil, loadedBookUrl: nil,
+                                                       currentSourceUrl: "https://a.invalid",
+                                                       currentBookUrl: "https://a.invalid/book/1"))
+        // Source switch: the old source's list must be dropped instead of shown for the new one.
+        XCTAssertTrue(TocUpdatePolicy.requiresTocReset(loadedSourceUrl: "https://a.invalid",
+                                                       loadedBookUrl: "https://a.invalid/book/1",
+                                                       currentSourceUrl: "https://b.invalid",
+                                                       currentBookUrl: "https://b.invalid/book/1"))
+        XCTAssertFalse(TocUpdatePolicy.requiresTocReset(loadedSourceUrl: "https://a.invalid",
+                                                        loadedBookUrl: "https://a.invalid/book/1",
+                                                        currentSourceUrl: "https://a.invalid",
+                                                        currentBookUrl: "https://a.invalid/book/1"))
+    }
 }
 
 final class PlaybackTransitionPolicyTests: XCTestCase {

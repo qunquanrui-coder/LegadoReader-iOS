@@ -15,6 +15,9 @@ public struct BookDetailView: View {
     @State private var tocTask: Task<Void, Never>? = nil
     /// False when the catalogue was only partially fetched — "全本缓存完成" must not be claimed.
     @State private var isTocComplete: Bool = true
+    /// Identity (source URL + book URL) of the chapter list currently shown in this page.
+    @State private var loadedTocSourceUrl: String? = nil
+    @State private var loadedTocBookUrl: String? = nil
     
     public init(book: Book) {
         _book = State(initialValue: book)
@@ -361,6 +364,9 @@ public struct BookDetailView: View {
         isCachingFullBook = true
         let allChapters = chapters
         let total = allChapters.count
+        // Snapshot the completeness together with the chapter list: a TOC refresh during the
+        // download must not let this old download claim a complete-book cache.
+        let tocCompleteSnapshot = isTocComplete
         fullCacheStatusText = "正在启动全本高速缓存 (0/\(total) 章)..."
         
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
@@ -408,7 +414,7 @@ public struct BookDetailView: View {
             await MainActor.run {
                 self.isCachingFullBook = false
                 if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
-                                                       tocComplete: self.isTocComplete) {
+                                                       tocComplete: tocCompleteSnapshot) {
                     self.fullCacheStatusText = "全本 \(total) 章完整缓存完成"
                 } else if savedTotal == total {
                     self.fullCacheStatusText = "已缓存当前获取的 \(total) 章，但目录尚不完整，无法确认全本"
@@ -427,6 +433,22 @@ public struct BookDetailView: View {
         let requestedBook = book
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == requestedBook.sourceUrl })
             ?? BookSource(bookSourceName: requestedBook.sourceName, bookSourceUrl: requestedBook.sourceUrl)
+        
+        // A source switch must drop the previous source's catalogue (and its running download):
+        // otherwise a failed new-source request keeps showing A's chapters, and a partial B
+        // result would be rejected because a stale non-empty list is still considered "local".
+        if TocUpdatePolicy.requiresTocReset(loadedSourceUrl: loadedTocSourceUrl,
+                                            loadedBookUrl: loadedTocBookUrl,
+                                            currentSourceUrl: requestedBook.sourceUrl,
+                                            currentBookUrl: requestedBook.bookUrl) {
+            cacheTask?.cancel()
+            isCachingFullBook = false
+            fullCacheStatusText = nil
+            chapters = []
+            isTocComplete = false
+            loadedTocSourceUrl = requestedBook.sourceUrl
+            loadedTocBookUrl = requestedBook.bookUrl
+        }
         
         // Offline-first: the persisted TOC also powers 目录预览 and 全本缓存 without network.
         if let cachedToc = storage.loadCachedToc(for: requestedBook) {
