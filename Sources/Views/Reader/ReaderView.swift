@@ -830,13 +830,13 @@ public struct ReaderView: View {
                             }
                     }
                 }
-            }
-            .onAppear {
-                updateViewportSize(CGSize(width: halfWidth, height: geo.size.height - 20))
-            }
-            .onChange(of: geo.size) { newSize in
-                let hw = max(140, (newSize.width - 18) / 2.0)
-                updateViewportSize(CGSize(width: hw, height: newSize.height - 20))
+                .onAppear {
+                    updateViewportSize(CGSize(width: halfWidth, height: geo.size.height - 20))
+                }
+                .onChange(of: geo.size) { newSize in
+                    let hw = max(140, (newSize.width - 18) / 2.0)
+                    updateViewportSize(CGSize(width: hw, height: newSize.height - 20))
+                }
             }
         }
     }
