@@ -218,8 +218,20 @@ public class LegadoParser {
         for el in targetElements {
             var val: String?
             switch attribute {
-            case "text", "text()", "textnodes", "owntext":
+            case "text", "text()", "owntext":
                 val = try? el.text()
+            case "textnodes":
+                // Preserve line breaks from <br> and <p> tags when extracting textNodes
+                if let rawHtml = try? el.html() {
+                    let withNewlines = rawHtml
+                        .replacingOccurrences(of: "<br[^>]*>", with: "\n", options: [.regularExpression, .caseInsensitive])
+                        .replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
+                        .replacingOccurrences(of: "<p[^>]*>", with: "\n", options: [.regularExpression, .caseInsensitive])
+                        .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    val = withNewlines
+                } else {
+                    val = try? el.text()
+                }
             case "html", "html()":
                 val = try? el.html()
             default:
@@ -410,6 +422,26 @@ public class LegadoParser {
             }
         }
         
+        // 4. Trim leading "Latest Chapters" preview block if Chapter 1 appears within indices 1...15
+        if chapters.count > 10 {
+            let maxCheck = min(15, chapters.count - 1)
+            for idx in 1...maxCheck {
+                let t = chapters[idx].title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let isFirstChapter = t.hasPrefix("第一章") || t.hasPrefix("第1章") || t.hasPrefix("第01章")
+                    || t.hasPrefix("第001章") || t.hasPrefix("楔子") || t.hasPrefix("序章") || t.hasPrefix("引子")
+                let firstTitle = chapters[0].title
+                let firstIsAlreadyCh1 = firstTitle.hasPrefix("第一章") || firstTitle.hasPrefix("第1章")
+                    || firstTitle.hasPrefix("楔子") || firstTitle.hasPrefix("序章") || firstTitle.hasPrefix("引子")
+                if isFirstChapter && !firstIsAlreadyCh1 {
+                    let trimmed = Array(chapters[idx...])
+                    chapters = trimmed.enumerated().map { newIdx, ch in
+                        Chapter(id: ch.id, index: newIdx, title: ch.title, url: ch.url, isCached: ch.isCached)
+                    }
+                    break
+                }
+            }
+        }
+        
         return chapters
     }
     
@@ -441,8 +473,25 @@ public class LegadoParser {
         let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
         
         if let ruleContent = source.ruleContent?.content, !ruleContent.isEmpty {
-            if let extracted = extractValue(from: doc, rule: ruleContent, baseUrl: baseUrl) {
-                let cleaned = cleanNovelText(extracted)
+            // Prefer @html over @text so paragraph breaks (<br>, <p>) are preserved
+            let htmlRule: String
+            if ruleContent.hasSuffix("@text") {
+                htmlRule = String(ruleContent.dropLast(5)) + "@html"
+            } else {
+                htmlRule = ruleContent
+            }
+            if let extracted = extractValue(from: doc, rule: htmlRule, baseUrl: baseUrl)
+                ?? extractValue(from: doc, rule: ruleContent, baseUrl: baseUrl) {
+                var raw = extracted
+                if let replaceRegex = source.ruleContent?.replaceRegex, !replaceRegex.isEmpty {
+                    let cleanPattern = replaceRegex.hasPrefix("##") ? String(replaceRegex.dropFirst(2)) : replaceRegex
+                    let parts = cleanPattern.components(separatedBy: "##")
+                    if let pattern = parts.first, !pattern.isEmpty {
+                        let rep = parts.count > 1 ? parts[1] : ""
+                        raw = raw.replacingOccurrences(of: pattern, with: rep, options: .regularExpression)
+                    }
+                }
+                let cleaned = cleanNovelText(raw)
                 if cleaned.count >= 50 {
                     return cleaned
                 }
@@ -452,8 +501,8 @@ public class LegadoParser {
         // Smart Auto-Discovery Fallback for common novel content containers
         let fallbackRules = [
             "#content@html", "#chaptercontent@html", ".read-content@html",
-            "#booktxt@html", ".con@html", "#nr1@html", ".txtnav@html",
-            ".word_read@html", ".content@html", "#TextContent@html", "article@html"
+            "#booktxt@html", ".con@html", "#nr1@html", "#nr@html", ".txtnav@html",
+            ".word_read@html", ".content@html", "#TextContent@html", "#rtext@html", "article@html"
         ]
         for rule in fallbackRules {
             if let raw = extractValue(from: doc, rule: rule, baseUrl: baseUrl) {
@@ -467,33 +516,61 @@ public class LegadoParser {
         return "未能解析章节正文，请点击右上角「换源」切换其他书源或点击刷新重试。"
     }
     
-    // MARK: - Clean HTML to Reader Prose
+    // MARK: - Clean HTML to Reader Prose (Paragraph-Preserving)
     private func cleanNovelText(_ rawHtml: String) -> String {
         var text = rawHtml
-        text = text.replacingOccurrences(of: "<script[^>]*>[\\s\\S]*?</script>", with: "", options: .regularExpression)
-        text = text.replacingOccurrences(of: "<style[^>]*>[\\s\\S]*?</style>", with: "", options: .regularExpression)
-        text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<script[^>]*>[\\s\\S]*?</script>", with: "", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "<style[^>]*>[\\s\\S]*?</style>", with: "", options: [.regularExpression, .caseInsensitive])
+        
+        // 1. Convert all HTML block / line-break tags into newlines (case-insensitive)
+        text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
         text = text.replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
-        text = text.replacingOccurrences(of: "<p[^>]*>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<p[^>]*>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "</div>", with: "\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "<div[^>]*>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "</li>", with: "\n", options: .caseInsensitive)
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         
-        text = text.replacingOccurrences(of: "&nbsp;", with: " ")
+        // 2. Decode HTML entities; convert 2+ consecutive non-breaking or full-width spaces into paragraph breaks!
+        text = text.replacingOccurrences(of: "(&nbsp;|&#160;|&#xA0;|\\u{00A0}|\\u{3000}){2,}", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "&#160;", with: " ")
         text = text.replacingOccurrences(of: "&lt;", with: "<")
         text = text.replacingOccurrences(of: "&gt;", with: ">")
         text = text.replacingOccurrences(of: "&amp;", with: "&")
         text = text.replacingOccurrences(of: "&quot;", with: "\"")
-        text = text.replacingOccurrences(of: "&#160;", with: " ")
-        text = text.replacingOccurrences(of: "　", with: " ")
+        text = text.replacingOccurrences(of: "&ldquo;", with: "“")
+        text = text.replacingOccurrences(of: "&rdquo;", with: "”")
+        text = text.replacingOccurrences(of: "&hellip;", with: "…")
+        text = text.replacingOccurrences(of: "&mdash;", with: "—")
         
-        let adKeywords = ["请记住本站域名", "手机阅读", "最新章节请访问", "一秒记住", "天才一秒记住", "本章未完", "点击下一页继续阅读"]
-        let lines = text.components(separatedBy: .newlines)
-        let formattedLines = lines
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { line in
-                guard !line.isEmpty else { return false }
-                return !adKeywords.contains(where: { line.contains($0) && line.count < 50 })
+        // 3. Also split where sentence-ending punctuation is followed by 2+ spaces
+        text = text.replacingOccurrences(
+            of: "([。！？…”」』】])[ \\t\\u{00A0}\\u{3000}]{2,}",
+            with: "$1\n",
+            options: .regularExpression
+        )
+        
+        let adKeywords = [
+            "请记住本站域名", "手机阅读", "最新章节请访问", "一秒记住",
+            "天才一秒记住", "本章未完", "点击下一页继续阅读", "为防止内容获取不全",
+            "请勿使用浏览器阅读模式", "加入书签，方便阅读"
+        ]
+        
+        let rawLines = text.components(separatedBy: .newlines)
+        var formattedLines: [String] = []
+        
+        for rawLine in rawLines {
+            let trimmed = rawLine
+                .replacingOccurrences(of: "\u{3000}", with: " ")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if adKeywords.contains(where: { trimmed.contains($0) && trimmed.count < 70 }) {
+                continue
             }
-            .map { "　　" + $0 }
+            formattedLines.append("　　" + trimmed)
+        }
         
         return formattedLines.joined(separator: "\n\n")
     }

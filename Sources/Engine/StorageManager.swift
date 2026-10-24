@@ -10,14 +10,14 @@ public class StorageManager: ObservableObject {
     @Published public var searchHistory: [String] = []
     
     private let bookshelfKey = "LegadoReader_Bookshelf_v2"
-    private let sourcesKey = "LegadoReader_BookSources_v2"
+    private let sourcesKey = "LegadoReader_BookSources_v2_1"
     private let configKey = "LegadoReader_ReaderConfig_v2"
     private let historyKey = "LegadoReader_SearchHistory_v2"
     
     private let fileManager = FileManager.default
     private var cacheDirectory: URL {
         let urls = fileManager.urls(for: .documentDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("NovelCache", isDirectory: true)
+        let dir = urls[0].appendingPathComponent("NovelCache_v2_1", isDirectory: true)
         if !fileManager.fileExists(atPath: dir.path) {
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         }

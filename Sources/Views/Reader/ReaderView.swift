@@ -26,6 +26,65 @@ public struct ReaderView: View {
         return chapters[currentChapterIndex]
     }
     
+    /// Splits chapter content into clean, distinct paragraphs with guaranteed indentation and inter-paragraph spacing
+    private var formattedParagraphs: [String] {
+        guard !currentContent.isEmpty else { return [] }
+        // Split on newlines OR two full-width spaces (in case of legacy cached text)
+        let normalized = currentContent
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\u{3000}\u{3000}", with: "\n")
+            .replacingOccurrences(of: "\u{00A0}\u{00A0}", with: "\n")
+        
+        var rawList = normalized
+            .components(separatedBy: .newlines)
+            .map {
+                $0.replacingOccurrences(of: "\u{3000}", with: " ")
+                  .replacingOccurrences(of: "\u{00A0}", with: " ")
+                  .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+        
+        // If a source stripped all <br>/<p> tags and returned a giant wall of text (e.g. <= 3 paragraphs for a whole chapter),
+        // intelligently split after dialogue closing quotes (。” / ！” / ？”) or every 2-3 sentences
+        if rawList.count <= 3 && currentContent.count > 250 {
+            var smartSplit: [String] = []
+            for block in rawList {
+                let withDialogueBreaks = block.replacingOccurrences(
+                    of: "([。！？…][”」』】])",
+                    with: "$1\n",
+                    options: .regularExpression
+                )
+                for sub in withDialogueBreaks.components(separatedBy: .newlines) {
+                    let s = sub.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !s.isEmpty else { continue }
+                    if s.count > 160 {
+                        // Further split long narrative blocks every ~2 sentences
+                        let sentences = s.replacingOccurrences(of: "([。！？])(?=[^”」』】])", with: "$1\n", options: .regularExpression)
+                            .components(separatedBy: .newlines)
+                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                        var buffer = ""
+                        for sent in sentences {
+                            buffer += sent
+                            if buffer.count >= 85 {
+                                smartSplit.append(buffer)
+                                buffer = ""
+                            }
+                        }
+                        if !buffer.isEmpty { smartSplit.append(buffer) }
+                    } else {
+                        smartSplit.append(s)
+                    }
+                }
+            }
+            if smartSplit.count > rawList.count {
+                rawList = smartSplit
+            }
+        }
+        
+        return rawList.map { "　　" + $0 }
+    }
+    
     public var body: some View {
         ZStack {
             // Theme Background
@@ -108,14 +167,19 @@ public struct ReaderView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 90)
                             } else {
-                                Text(currentContent)
-                                    .font(.system(
-                                        size: storage.readerConfig.fontSize,
-                                        design: storage.readerConfig.fontDesign.swiftUIDesign
-                                    ))
-                                    .lineSpacing(storage.readerConfig.lineSpacing)
-                                    .foregroundColor(storage.readerConfig.theme.textColor)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                VStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 14) {
+                                    ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { _, paragraph in
+                                        Text(paragraph)
+                                            .font(.system(
+                                                size: storage.readerConfig.fontSize,
+                                                design: storage.readerConfig.fontDesign.swiftUIDesign
+                                            ))
+                                            .lineSpacing(storage.readerConfig.lineSpacing)
+                                            .foregroundColor(storage.readerConfig.theme.textColor)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
                                 
                                 // Chapter Bottom Navigation Bar
                                 HStack(spacing: 16) {
