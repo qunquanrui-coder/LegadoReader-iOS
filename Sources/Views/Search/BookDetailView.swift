@@ -103,7 +103,7 @@ public struct BookDetailView: View {
                         if isAddedToShelf {
                             storage.removeBookFromShelf(book)
                         } else {
-                            storage.addBookToShelf(book)
+                            addCurrentBookToShelf()
                         }
                     } label: {
                         HStack(spacing: 6) {
@@ -124,6 +124,7 @@ public struct BookDetailView: View {
                             book.currentParagraphIndex = saved.currentParagraphIndex
                             book.currentChapterTitle = saved.currentChapterTitle
                         }
+                        addCurrentBookToShelf()
                         storage.markBookAsRecentlyRead(book)
                         isReading = true
                     } label: {
@@ -264,7 +265,9 @@ public struct BookDetailView: View {
                                     book.currentChapterIndex = ch.index
                                     book.currentChapterTitle = ch.title
                                     book.currentParagraphIndex = 0
-                                    storage.addBookToShelf(book)
+                                    addCurrentBookToShelf()
+                                    // An explicit chapter selection takes precedence over source-change relocation.
+                                    _ = storage.consumePendingRelocation(for: book)
                                     storage.updateBookProgress(
                                         bookId: book.id,
                                         bookTitle: book.title,
@@ -339,7 +342,8 @@ public struct BookDetailView: View {
                     if idx < chapters.count {
                         book.currentChapterTitle = chapters[idx].title
                     }
-                    storage.addBookToShelf(book)
+                    addCurrentBookToShelf()
+                    _ = storage.consumePendingRelocation(for: book)
                     storage.updateBookProgress(
                         bookId: book.id,
                         bookTitle: book.title,
@@ -358,9 +362,18 @@ public struct BookDetailView: View {
         }
     }
     
+    /// Search results can have a different ID from the same work already on the shelf.
+    /// Persist the current TOC under the identity the reader will actually reopen.
+    private func addCurrentBookToShelf() {
+        book = storage.addBookToShelf(book)
+        if !chapters.isEmpty, loadedTocSourceUrl == book.sourceUrl, loadedTocBookUrl == book.bookUrl {
+            storage.saveCachedToc(for: book, chapters: chapters, complete: isTocComplete)
+        }
+    }
+
     private func startFullBookCache() {
         guard !chapters.isEmpty else { return }
-        storage.addBookToShelf(book)
+        addCurrentBookToShelf()
         isCachingFullBook = true
         let allChapters = chapters
         let total = allChapters.count
@@ -480,7 +493,7 @@ public struct BookDetailView: View {
                     } else {
                         self.chapters = result.chapters
                         self.book.totalChapters = result.chapters.count
-                        self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
+                        self.storage.saveCachedToc(for: self.book, chapters: result.chapters, complete: result.complete)
                     }
                     self.isLoadingChapters = false
                 }

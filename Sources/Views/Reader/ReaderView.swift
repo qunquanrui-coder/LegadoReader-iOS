@@ -47,10 +47,9 @@ public struct ReaderView: View {
     @State private var isCachingChapters = false
     @State private var activeCacheTask: Task<Void, Never>? = nil
     @State private var chapterLoadTask: Task<Void, Never>?
-    @State private var chapterLoadID = UUID()
+    @State private var loadTokens = LoadTokenSet()
     @State private var prefetchTask: Task<Void, Never>?
     @State private var tocLoadTask: Task<Void, Never>?
-    @State private var tocLoadID = UUID()
     @State private var tocRefreshTask: Task<Void, Never>?
     // TTS hand-off state: chapter/book switches stop the old audio before the new chapter
     // becomes current, then resume on the new text (keeping the previous pause state).
@@ -335,14 +334,24 @@ public struct ReaderView: View {
             initializeReader()
         }
         .onDisappear {
+            // A dismissed reader must never commit a late load into shared progress or speech.
+            // Invalidate identities as well as cancelling: transports may complete despite cancellation.
+            loadTokens.invalidateAll()
+            chapterLoadTask?.cancel()
+            chapterLoadTask = nil
+            tocLoadTask?.cancel()
+            tocLoadTask = nil
+            tocRefreshTask?.cancel()
+            tocRefreshTask = nil
+            prefetchTask?.cancel()
+            prefetchTask = nil
             saveProgress(force: true)
             // Cancel any pending "start listening on the new chapter" intent: the page is gone.
             pendingListenStart = false
             pendingTTSCarryOver = false
             pendingTTSPaused = false
             // Hand TTS over to the engine so it keeps reading & auto-advancing chapters after the page closes
-            if speech.isSpeaking,
-               let ctx = speech.context,
+            if let ctx = speech.context,
                ctx.book.title == book.title && ctx.book.author == book.author {
                 speech.detachReader()
             }
@@ -371,7 +380,7 @@ public struct ReaderView: View {
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
                 chapterLoadTask?.cancel()
-                chapterLoadID = UUID()
+                loadTokens.beginChapterLoad()
                 prefetchTask?.cancel()
                 activeCacheTask?.cancel()
                 isCachingChapters = false
@@ -1420,14 +1429,13 @@ public struct ReaderView: View {
         tocLoadTask?.cancel()
         tocRefreshTask?.cancel()
         chapterLoadTask?.cancel()
-        chapterLoadID = UUID()
+        loadTokens.beginChapterLoad()
         prefetchTask?.cancel()
         activeCacheTask?.cancel()
         pendingListenStart = false
         pendingTTSCarryOver = false
         pendingTTSPaused = false
-        let loadID = UUID()
-        tocLoadID = loadID
+        let loadID = loadTokens.beginTocLoad()
         let requestedBook = book
         isLoading = true
         errorMessage = nil
@@ -1453,7 +1461,7 @@ public struct ReaderView: View {
                 let result = try await LegadoParser.shared.fetchToc(bookUrl: requestedBook.bookUrl, source: source)
                 try Task.checkCancellation()
                 await MainActor.run {
-                    guard self.tocLoadID == loadID, self.book.bookUrl == requestedBook.bookUrl else { return }
+                    guard self.loadTokens.isCurrentTocLoad(loadID), self.book.bookUrl == requestedBook.bookUrl else { return }
                     if result.chapters.isEmpty {
                         self.errorMessage = "当前书源未能解析出目录，请点击「切换书源」"
                         self.isLoading = false
@@ -1471,7 +1479,7 @@ public struct ReaderView: View {
                 return
             } catch {
                 await MainActor.run {
-                    guard self.tocLoadID == loadID else { return }
+                    guard self.loadTokens.isCurrentTocLoad(loadID) else { return }
                     self.errorMessage = "目录拉取失败，请点击「切换书源」或重试"
                     self.isLoading = false
                 }
@@ -1540,7 +1548,7 @@ public struct ReaderView: View {
                 try Task.checkCancellation()
                 guard !result.chapters.isEmpty else { return }
                 await MainActor.run {
-                    guard self.tocLoadID == loadID,
+                    guard self.loadTokens.isCurrentTocLoad(loadID),
                           TocUpdatePolicy.matchesRequest(currentSourceUrl: self.book.sourceUrl,
                                                          currentBookUrl: self.book.bookUrl,
                                                          requestedSourceUrl: requestedBook.sourceUrl,
@@ -1594,8 +1602,7 @@ public struct ReaderView: View {
     private func loadCurrentChapterContent(forceRefresh: Bool = false, autoContinueTTS: Bool = false) {
         guard let chapter = currentChapter else { return }
         chapterLoadTask?.cancel()
-        let loadID = UUID()
-        chapterLoadID = loadID
+        let loadID = loadTokens.beginChapterLoad()
         let requestedBook = book
         
         if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index,
@@ -1626,7 +1633,7 @@ public struct ReaderView: View {
                 try Task.checkCancellation()
                 
                 await MainActor.run {
-                    guard self.chapterLoadID == loadID, self.currentChapter?.url == chapter.url,
+                    guard self.loadTokens.isCurrentChapterLoad(loadID), self.currentChapter?.url == chapter.url,
                           self.book.bookUrl == requestedBook.bookUrl else { return }
                     self.applyChapterContent(content.text)
                     self.loadedContentChapterURL = chapter.url
@@ -1642,7 +1649,7 @@ public struct ReaderView: View {
                 return
             } catch {
                 await MainActor.run {
-                    guard self.chapterLoadID == loadID else { return }
+                    guard self.loadTokens.isCurrentChapterLoad(loadID) else { return }
                     let wasCarryOver = self.pendingTTSCarryOver
                     self.pendingTTSCarryOver = false
                     self.pendingTTSPaused = false

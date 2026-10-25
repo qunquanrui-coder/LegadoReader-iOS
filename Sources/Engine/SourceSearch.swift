@@ -149,8 +149,8 @@ public final class SourceSearchSession: ObservableObject {
                                 target.map { SourceSearchPolicy.isCandidate(candidate, for: $0) } ?? true
                             }
                             if books.isEmpty { self.emptyResults += 1 }
-                            var seen = Set(self.results.map { $0.sourceUrl + "\n" + $0.bookUrl })
-                            self.results.append(contentsOf: books.filter { seen.insert($0.sourceUrl + "\n" + $0.bookUrl).inserted })
+                            var seen = Set(self.results.map(\.searchResultID))
+                            self.results.append(contentsOf: books.filter { seen.insert($0.searchResultID).inserted })
                         } else { self.failures += 1 }
                     }
                     self.updateStatus(prefix: "搜索中")

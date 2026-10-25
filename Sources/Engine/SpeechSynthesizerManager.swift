@@ -49,10 +49,12 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         onChapterFinished = nil
     }
     
-    /// Play / pause without needing the paragraph list (used by bookshelf mini player & lock screen)
-    public func resumeOrPause() {
-        guard isSpeaking, !paragraphs.isEmpty else { return }
+    /// Remote controls can toggle an active session, but cannot start a stopped session's old text.
+    @discardableResult
+    public func resumeOrPause() -> Bool {
+        guard isSpeaking, !paragraphs.isEmpty else { return false }
         togglePlayPause(paragraphs: paragraphs, currentIndex: currentParagraphIndex)
+        return true
     }
     
     private func handleChapterFinished() {
@@ -248,9 +250,8 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         
         commandCenter.togglePlayPauseCommand.isEnabled = true
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self = self, !self.paragraphs.isEmpty else { return .commandFailed }
-            self.togglePlayPause(paragraphs: self.paragraphs, currentIndex: self.currentParagraphIndex)
-            return .success
+            guard let self = self else { return .commandFailed }
+            return self.resumeOrPause() ? .success : .commandFailed
         }
         
         commandCenter.nextTrackCommand.isEnabled = true
@@ -427,6 +428,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         isSpeaking = false
         isPaused = false
         isLoadingAudio = false
+        paragraphs.removeAll()
         prefetchedAudio.removeAll()
         cancelSleepTimer()
         #if os(iOS)

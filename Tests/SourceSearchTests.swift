@@ -83,6 +83,26 @@ final class SourceSearchTests: XCTestCase {
     }
 
     @MainActor
+    func testSourceVariantsKeepDistinctRowIdentityWithoutChangingPersistedBookID() async throws {
+        let originalSource = source(0)
+        var alternateSource = originalSource
+        alternateSource.bookSourceUrl += "#alternate-rules"
+        let originalBook = book()
+        let session = SourceSearchSession { src, _ in
+            var candidate = originalBook
+            candidate.sourceUrl = src.bookSourceUrl
+            // Duplicate rows within one source collapse; distinct rule variants stay selectable.
+            return [candidate, candidate]
+        }
+        session.start(keyword: originalBook.title, sources: [originalSource, alternateSource])
+        try await waitUntil { !session.isSearching }
+        XCTAssertEqual(session.results.count, 2)
+        XCTAssertEqual(Set(session.results.map(\.searchResultID)).count, 2)
+        XCTAssertEqual(Set(session.results.map(\.sourceUrl)), Set([originalSource.bookSourceUrl, alternateSource.bookSourceUrl]))
+        XCTAssertTrue(session.results.allSatisfy { $0.id == originalBook.id && $0.bookUrl == originalBook.bookUrl })
+    }
+
+    @MainActor
     func testOldQueryCannotOverwriteNewQueryEvenWhenTransportIgnoresCancellation() async throws {
         let gate = DelayedSearch()
         let session = SourceSearchSession { _, key in

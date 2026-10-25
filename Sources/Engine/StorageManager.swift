@@ -184,26 +184,32 @@ public class StorageManager: ObservableObject {
     }
     
     // MARK: - BookShelf Operations
-    public func addBookToShelf(_ book: Book) {
-        if let idx = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
-            bookshelf[idx].sourceUrl = book.sourceUrl
-            bookshelf[idx].sourceName = book.sourceName
-            bookshelf[idx].bookUrl = book.bookUrl
-            if let cover = book.coverUrl, !cover.isEmpty {
-                bookshelf[idx].coverUrl = cover
-            }
-            saveBookshelf()
-        } else {
-            var newBook = book
-            if lastReadBookId == nil {
-                lastReadBookId = newBook.id
-                UserDefaults.standard.set(newBook.id, forKey: lastReadBookIdKey)
-            }
-            bookshelf.append(newBook)
-            saveBookshelf()
+    /// Return the shelf's canonical identity so TOC and text downloads use the same cache directory.
+    @discardableResult
+    public func addBookToShelf(_ book: Book) -> Book {
+        if let existing = bookshelf.first(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
+            return replaceBookSource(for: existing, with: book)
         }
+        if lastReadBookId == nil {
+            lastReadBookId = book.id
+            UserDefaults.standard.set(book.id, forKey: lastReadBookIdKey)
+        }
+        bookshelf.append(book)
+        saveBookshelf()
+        return book
     }
-    
+
+    /// Keep shelf identity and reading state when the same work is found on a different site.
+    static func bookByReplacingSource(of existing: Book, with incoming: Book) -> Book {
+        var updated = existing
+        updated.sourceUrl = incoming.sourceUrl
+        updated.sourceName = incoming.sourceName
+        updated.bookUrl = incoming.bookUrl
+        if let latest = incoming.latestChapter, !latest.isEmpty { updated.latestChapter = latest }
+        if let cover = incoming.coverUrl, !cover.isEmpty { updated.coverUrl = cover }
+        return updated
+    }
+
     /// Marks a book as the actively read book right now, moving it to index 0 and updating `lastReadBookId`
     public func markBookAsRecentlyRead(_ book: Book) {
         let now = Date()
@@ -233,35 +239,25 @@ public class StorageManager: ObservableObject {
     }
     
     public func replaceBookSource(for book: Book, with newBook: Book) -> Book {
-        let sourceChanged = (book.sourceUrl != newBook.sourceUrl) || (book.bookUrl != newBook.bookUrl)
-        var updated = book
-        updated.sourceUrl = newBook.sourceUrl
-        updated.sourceName = newBook.sourceName
-        updated.bookUrl = newBook.bookUrl
-        if let latest = newBook.latestChapter, !latest.isEmpty {
-            updated.latestChapter = latest
-        }
+        let shelfIndex = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) })
+        let original = shelfIndex.map { bookshelf[$0] } ?? book
+        let sourceChanged = (original.sourceUrl != newBook.sourceUrl) || (original.bookUrl != newBook.bookUrl)
+        let updated = Self.bookByReplacingSource(of: original, with: newBook)
         if sourceChanged {
-            // Old cached chapters belong to the previous source's TOC numbering — they must not be reused.
-            clearChapterCache(bookId: book.id)
-            if let shelfBook = bookshelf.first(where: { $0.title == book.title && $0.author == book.author }), shelfBook.id != book.id {
-                clearChapterCache(bookId: shelfBook.id)
-            }
-            if let chapterTitle = savedChapterTitle(for: book), !chapterTitle.isEmpty {
-                setPendingRelocation(for: book, chapterTitle: chapterTitle)
+            // Always invalidate the canonical shelf cache, including switches initiated from a search result.
+            clearChapterCache(bookId: original.id)
+            if book.id != original.id { clearChapterCache(bookId: book.id) }
+            if let chapterTitle = savedChapterTitle(for: original), !chapterTitle.isEmpty {
+                setPendingRelocation(for: original, chapterTitle: chapterTitle)
             }
         }
-        if let idx = bookshelf.firstIndex(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
-            bookshelf[idx].sourceUrl = updated.sourceUrl
-            bookshelf[idx].sourceName = updated.sourceName
-            bookshelf[idx].bookUrl = updated.bookUrl
-            if let latest = updated.latestChapter { bookshelf[idx].latestChapter = latest }
-            updated.id = bookshelf[idx].id
+        if let index = shelfIndex {
+            bookshelf[index] = updated
             saveBookshelf()
         }
         return updated
     }
-    
+
     public func removeBookFromShelf(_ book: Book) {
         let removedIds = bookshelf.filter { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }.map { $0.id }
         bookshelf.removeAll(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) })

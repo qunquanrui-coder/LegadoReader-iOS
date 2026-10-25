@@ -156,7 +156,7 @@ struct SettingsView: View {
                 
                 Section("书源引擎") {
                     HStack {
-                        Label("已加载有效书源", systemImage: "network")
+                        Label("已保存书源规则", systemImage: "network")
                         Spacer()
                         Text("\(storage.bookSources.count) 个")
                             .foregroundColor(.secondary)
@@ -165,7 +165,7 @@ struct SettingsView: View {
                     Button {
                         storage.loadDefaultSources()
                     } label: {
-                        Label("恢复内置 20 个实测高速书源", systemImage: "arrow.counterclockwise")
+                        Label("恢复内置 20 个精选书源", systemImage: "arrow.counterclockwise")
                             .foregroundColor(.indigo)
                     }
                 }

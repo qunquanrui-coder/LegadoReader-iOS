@@ -421,7 +421,7 @@ public struct SearchView: View {
     private var searchResultsScrollView: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
-                ForEach(searchResults) { book in
+                ForEach(searchResults, id: \.searchResultID) { book in
                     NavigationLink {
                         BookDetailView(book: book)
                     } label: {

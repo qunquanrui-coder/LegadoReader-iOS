@@ -56,7 +56,7 @@ public struct ChangeSourceSheet: View {
                         Spacer()
                     }
                 } else {
-                    List(alternativeBooks) { item in
+                    List(alternativeBooks, id: \.searchResultID) { item in
                         Button {
                             if SourceSearchPolicy.needsAuthorConfirmation(item, for: currentBook) {
                                 unverifiedCandidate = item

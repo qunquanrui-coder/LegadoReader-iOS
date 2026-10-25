@@ -2,6 +2,8 @@ import Foundation
 
 public struct Book: Identifiable, Codable, Equatable, Hashable {
     public var id: String
+    /// Search rows distinguish source variants without changing the persisted shelf/cache identity.
+    public var searchResultID: String { sourceUrl + "\n" + bookUrl }
     public var title: String
     public var author: String
     public var coverUrl: String?
