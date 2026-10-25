@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 public struct ChangeSourceSheet: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var storage = StorageManager.shared
@@ -7,9 +8,12 @@ public struct ChangeSourceSheet: View {
     let currentBook: Book
     let onSelectNewSource: (Book) -> Void
     
-    @State private var alternativeBooks: [Book] = []
-    @State private var isSearching = true
-    @State private var statusText = "正在搜索可用书源..."
+    @StateObject private var searchSession = SourceSearchSession()
+    @State private var unverifiedCandidate: Book?
+    @State private var showAuthorConfirmation = false
+    private var alternativeBooks: [Book] { searchSession.results }
+    private var isSearching: Bool { searchSession.isSearching }
+    private var statusText: String { searchSession.status }
     
     public init(currentBook: Book, onSelectNewSource: @escaping (Book) -> Void) {
         self.currentBook = currentBook
@@ -19,10 +23,14 @@ public struct ChangeSourceSheet: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if isSearching {
+                if !statusText.isEmpty {
                     HStack(spacing: 8) {
-                        ProgressView()
-                            .scaleEffect(0.85)
+                        if isSearching { ProgressView().scaleEffect(0.85) }
+                        if isSearching {
+                            Button("停止") { searchSession.cancel() }
+                        } else if searchSession.hasMore {
+                            Button("继续搜索") { searchSession.continueSearch() }
+                        }
                         Text(statusText)
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -50,9 +58,10 @@ public struct ChangeSourceSheet: View {
                 } else {
                     List(alternativeBooks) { item in
                         Button {
-                            let updated = storage.replaceBookSource(for: currentBook, with: item)
-                            onSelectNewSource(updated)
-                            dismiss()
+                            if SourceSearchPolicy.needsAuthorConfirmation(item, for: currentBook) {
+                                unverifiedCandidate = item
+                                showAuthorConfirmation = true
+                            } else { select(item) }
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -72,6 +81,8 @@ public struct ChangeSourceSheet: View {
                                         }
                                     }
                                     
+                                    Text(item.title)
+                                        .font(.subheadline)
                                     Text("作者：\(item.author)")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
@@ -102,52 +113,29 @@ public struct ChangeSourceSheet: View {
                     }
                 }
             }
+            .onDisappear { searchSession.cancel() }
+            .alert("作者信息不完整", isPresented: $showAuthorConfirmation) {
+                Button("取消", role: .cancel) { unverifiedCandidate = nil }
+                Button("确认切换") {
+                    if let candidate = unverifiedCandidate { select(candidate) }
+                }
+            } message: {
+                Text("候选书籍《\(unverifiedCandidate?.title ?? "")》，作者：\(unverifiedCandidate?.author ?? "未知")。请确认与当前书籍为同一部作品。")
+            }
             .onAppear {
                 searchAlternatives()
             }
         }
     }
     
+    private func select(_ item: Book) {
+        guard SourceSearchPolicy.isCandidate(item, for: currentBook) else { return }
+        let updated = storage.replaceBookSource(for: currentBook, with: item)
+        onSelectNewSource(updated)
+        dismiss()
+    }
+
     private func searchAlternatives() {
-        isSearching = true
-        alternativeBooks.removeAll()
-        let keyword = currentBook.title
-        let sources = Array(storage.bookSources.filter { ($0.enabled ?? true) && ($0.searchUrl != nil) }.prefix(35))
-        statusText = "正在比对 \(sources.count) 个书源..."
-        
-        Task {
-            var found: [Book] = []
-            await withTaskGroup(of: [Book]?.self) { group in
-                for source in sources {
-                    group.addTask {
-                        do {
-                            let (html, finalUrl) = try await NetworkManager.shared.executeSearch(source: source, keyword: keyword)
-                            let list = try LegadoParser.shared.parseSearch(html: html, baseUrl: finalUrl, source: source)
-                            return list.filter { $0.title.contains(keyword) || keyword.contains($0.title) }
-                        } catch {
-                            return nil
-                        }
-                    }
-                }
-                
-                var done = 0
-                for await res in group {
-                    done += 1
-                    if let res = res, let firstMatch = res.first {
-                        found.append(firstMatch)
-                        let snap = found
-                        let d = done
-                        await MainActor.run {
-                            self.alternativeBooks = snap
-                            self.statusText = "已检测 \(d)/\(sources.count) 个书源，可用 \(snap.count) 个"
-                        }
-                    }
-                }
-            }
-            
-            await MainActor.run {
-                self.isSearching = false
-            }
-        }
+        searchSession.start(keyword: currentBook.title, sources: storage.bookSources, matching: currentBook)
     }
 }

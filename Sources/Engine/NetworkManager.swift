@@ -115,10 +115,17 @@ public class NetworkManager {
         }
         
         let (data, response) = try await session.data(for: request)
+        try Self.validateSearchResponse(response)
         let finalUrl = response.url ?? url
         return (try decodeData(data), finalUrl)
     }
     
+    static func validateSearchResponse(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
     private func extractOptionValue(from optString: String, key: String) -> String? {
         // Try standard JSON first
         let normalized = optString.replacingOccurrences(of: "'", with: "\"")

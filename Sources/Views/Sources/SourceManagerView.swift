@@ -6,6 +6,8 @@ public struct SourceManagerView: View {
     @State private var searchSourceText = ""
     @State private var isTestingSpeed = false
     @State private var speedTestStatus = ""
+    @State private var validationTask: Task<Void, Never>?
+    @State private var validationID = UUID()
     
     private var filteredSources: [BookSource] {
         if searchSourceText.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -28,7 +30,7 @@ public struct SourceManagerView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("已启用 \(storage.bookSources.filter { $0.enabled ?? true }.count) / \(storage.bookSources.count) 个书源")
                                 .font(.system(size: 16, weight: .bold, design: .serif))
-                            Text(speedTestStatus.isEmpty ? "支持一键全自动并发测速、按极速排序与失效源自动禁用" : speedTestStatus)
+                            Text(speedTestStatus.isEmpty ? "使用“斗罗大陆”测试搜索，成功源优先；保留手动启用设置" : speedTestStatus)
                                 .font(.system(size: 11))
                                 .foregroundColor(isTestingSpeed ? .indigo : .secondary)
                         }
@@ -37,7 +39,7 @@ public struct SourceManagerView: View {
                     
                     HStack(spacing: 10) {
                         Button {
-                            runSpeedTestAndOptimize()
+                            if isTestingSpeed { cancelValidation() } else { runSpeedTestAndOptimize() }
                         } label: {
                             HStack(spacing: 5) {
                                 if isTestingSpeed {
@@ -46,7 +48,7 @@ public struct SourceManagerView: View {
                                 } else {
                                     Image(systemName: "bolt.fill")
                                 }
-                                Text(isTestingSpeed ? "正在并发测速..." : "一键测速 & 智能优选")
+                                Text(isTestingSpeed ? "停止测试" : "测试搜索并排序")
                             }
                             .font(.system(size: 12, weight: .semibold))
                             .frame(maxWidth: .infinity)
@@ -55,9 +57,9 @@ public struct SourceManagerView: View {
                             .foregroundColor(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
-                        .disabled(isTestingSpeed)
                         
                         Button {
+                            cancelValidation()
                             storage.loadDefaultSources()
                             speedTestStatus = "已恢复内置精选书源"
                         } label: {
@@ -158,6 +160,7 @@ public struct SourceManagerView: View {
                     }
                 }
             }
+            .onDisappear { cancelValidation() }
             .sheet(isPresented: $showingImportSheet) {
                 ImportSourceSheet()
             }
@@ -167,7 +170,7 @@ public struct SourceManagerView: View {
     @ViewBuilder
     private func speedBadge(ms: Int) -> some View {
         if ms >= 90000 {
-            Text("超时失效")
+            Text("搜索未验证通过")
                 .font(.system(size: 9, weight: .bold))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -201,74 +204,46 @@ public struct SourceManagerView: View {
         }
     }
     
+    private func cancelValidation() {
+        validationID = UUID()
+        validationTask?.cancel()
+        validationTask = nil
+        if isTestingSpeed { speedTestStatus = "测试已停止，保留原有设置" }
+        isTestingSpeed = false
+    }
+
     private func runSpeedTestAndOptimize() {
         let sources = storage.bookSources
         guard !sources.isEmpty else { return }
-        
+        cancelValidation()
+        let id = UUID()
+        validationID = id
         isTestingSpeed = true
-        speedTestStatus = "正在检测 \(sources.count) 个书源响应速度..."
-        
-        Task {
-            var updated: [BookSource] = []
-            var aliveCount = 0
-            
-            await withTaskGroup(of: BookSource.self) { group in
-                for src in sources {
-                    group.addTask {
-                        var copy = src
-                        let cleanUrl = src.bookSourceUrl.components(separatedBy: "#").first ?? src.bookSourceUrl
-                        guard let url = URL(string: cleanUrl) else {
-                            copy.respondTime = 99999
-                            copy.enabled = false
-                            return copy
-                        }
-                        var req = URLRequest(url: url)
-                        req.timeoutInterval = 6.0
-                        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-                        
-                        let start = Date()
-                        do {
-                            let (_, resp) = try await URLSession.shared.data(for: req)
-                            let elapsedMs = max(15, Int(Date().timeIntervalSince(start) * 1000))
-                            if let http = resp as? HTTPURLResponse, http.statusCode >= 500 {
-                                copy.respondTime = 99999
-                                copy.enabled = false
-                            } else {
-                                copy.respondTime = elapsedMs
-                                copy.enabled = true
-                            }
-                        } catch {
-                            copy.respondTime = 99999
-                            copy.enabled = false
-                        }
-                        return copy
-                    }
+        speedTestStatus = "正在测试实际搜索结果..."
+        validationTask = Task {
+            do {
+                let tested = try await SourceValidationPolicy.validate(sources: sources) { done, total in
+                    guard validationID == id else { return }
+                    speedTestStatus = "已检查 \(done)/\(total) 个书源；可随时停止"
                 }
-                
-                for await res in group {
-                    if (res.respondTime ?? 99999) < 90000 {
-                        aliveCount += 1
-                    }
-                    updated.append(res)
-                }
-            }
-            
-            // Sort fastest working sources first
-            updated.sort { ($0.respondTime ?? 99999) < ($1.respondTime ?? 99999) }
-            let finalUpdated = updated
-            let finalAlive = aliveCount
-            
-            await MainActor.run {
-                storage.bookSources = finalUpdated
+                try Task.checkCancellation()
+                guard validationID == id else { return }
+                storage.bookSources = SourceValidationPolicy.applying(tested, original: sources, to: storage.bookSources)
                 storage.saveBookSources()
+                let passed = tested.filter { ($0.enabled ?? true) && ($0.respondTime ?? 99999) < 90000 }.count
                 isTestingSpeed = false
-                speedTestStatus = "测速完成 · \(finalAlive) 个极速可用源已置顶，失效源已自动禁用"
+                speedTestStatus = "测试完成：\(passed) 个源返回搜索结果。未通过不代表永久失效，启用设置保持不变。"
+            } catch {
+                guard validationID == id else { return }
+                isTestingSpeed = false
+                speedTestStatus = "测试已停止，保留原有设置"
             }
         }
     }
-    
+
     private func deleteSource(at offsets: IndexSet) {
-        storage.bookSources.remove(atOffsets: offsets)
+        let urls = Set(offsets.map { filteredSources[$0].bookSourceUrl })
+        storage.bookSources.removeAll { urls.contains($0.bookSourceUrl) }
         storage.saveBookSources()
     }
 }

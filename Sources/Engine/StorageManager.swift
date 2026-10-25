@@ -352,7 +352,7 @@ public class StorageManager: ObservableObject {
         }
     }
     
-    public func importSourcesFromJSON(jsonString: String) throws -> Int {
+    public func importSourcesFromJSON(jsonString: String, updateExisting: Bool = false) throws -> SourceImportPolicy.Result {
         guard let data = jsonString.data(using: .utf8) else {
             throw NSError(domain: "LegadoReader", code: -1, userInfo: [NSLocalizedDescriptionKey: "无效的文本编码"])
         }
@@ -369,20 +369,10 @@ public class StorageManager: ObservableObject {
             throw NSError(domain: "LegadoReader", code: -2, userInfo: [NSLocalizedDescriptionKey: "书源 JSON 格式不符合 Legado 规范"])
         }
         
-        var existingSet = Set(bookSources.map { $0.bookSourceUrl })
-        var addedCount = 0
-        
-        for s in newSources {
-            guard !s.bookSourceUrl.isEmpty, !s.bookSourceName.isEmpty else { continue }
-            if !existingSet.contains(s.bookSourceUrl) {
-                existingSet.insert(s.bookSourceUrl)
-                bookSources.append(s)
-                addedCount += 1
-            }
-        }
-        
+        let result = SourceImportPolicy.merge(existing: bookSources, incoming: newSources, updateExisting: updateExisting)
+        bookSources = result.sources
         saveBookSources()
-        return addedCount
+        return result
     }
     
     public func loadDefaultSources() {

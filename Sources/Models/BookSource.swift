@@ -15,17 +15,14 @@ public struct LossyCodableList<Element: Decodable>: Decodable {
         var container = try decoder.unkeyedContainer()
         var elements: [Element] = []
         while !container.isAtEnd {
-            if let wrapper = try? container.decode(ElementWrapper.self), let element = wrapper.element {
-                elements.append(element)
-            } else {
-                _ = try? container.decode(AnyCodableSkip.self)
-            }
+            // Decoding the wrapper already consumes one array item, including invalid entries.
+            let wrapper = try container.decode(ElementWrapper.self)
+            if let element = wrapper.element { elements.append(element) }
         }
         self.elements = elements
     }
 }
 
-private struct AnyCodableSkip: Decodable {}
 
 public struct BookSource: Identifiable, Codable, Equatable, Hashable {
     public var id: String { bookSourceUrl }

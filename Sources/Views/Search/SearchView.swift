@@ -1,14 +1,17 @@
 import SwiftUI
 import UIKit
 
+@MainActor
 public struct SearchView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var storage = StorageManager.shared
     
     @State private var searchText = ""
-    @State private var searchResults: [Book] = []
-    @State private var isSearching = false
-    @State private var searchProgress = ""
+    @StateObject private var searchSession = SourceSearchSession()
+    @State private var submittedKeyword = ""
+    private var searchResults: [Book] { sortResultsByRelevance(searchSession.results, keyword: submittedKeyword) }
+    private var isSearching: Bool { searchSession.isSearching }
+    private var searchProgress: String { searchSession.status }
     
     // Real-time search suggestions (Auto-complete)
     @State private var suggestions: [SearchSuggestion] = []
@@ -56,6 +59,7 @@ public struct SearchView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("全网搜书")
             .navigationBarTitleDisplayMode(.inline)
+            .onDisappear { searchSession.cancel(); suggestionTask?.cancel() }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -88,6 +92,7 @@ public struct SearchView: View {
                     .focused($isSearchFieldFocused)
                     .submitLabel(.search)
                     .onChange(of: searchText) { newValue in
+                        if newValue != submittedKeyword { searchSession.clear() }
                         handleSearchTextChanged(newValue)
                     }
                     .onSubmit {
@@ -100,8 +105,7 @@ public struct SearchView: View {
                         searchText = ""
                         suggestions.removeAll()
                         showSuggestions = false
-                        searchResults.removeAll()
-                        searchProgress = ""
+                        searchSession.clear()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary.opacity(0.7))
@@ -251,11 +255,17 @@ public struct SearchView: View {
             
             Spacer()
             
+            if isSearching {
+                Button("停止") { searchSession.cancel() }
+                    .font(.caption)
+            } else if searchSession.hasMore {
+                Button("继续搜索") { searchSession.continueSearch() }
+                    .font(.caption)
+            }
             if !searchResults.isEmpty {
                 Button {
                     hideKeyboard()
-                    searchResults.removeAll()
-                    searchProgress = ""
+                    searchSession.clear()
                     searchText = ""
                 } label: {
                     Text("返回榜单")
@@ -549,55 +559,12 @@ public struct SearchView: View {
     private func performSearch(keyword rawKey: String) {
         let keyword = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return }
-        
         hideKeyboard()
         storage.addSearchHistory(keyword)
-        isSearching = true
-        searchResults.removeAll()
-        
-        let allEnabled = storage.bookSources.filter { ($0.enabled ?? true) && ($0.searchUrl != nil) }
-        let enabledSources = Array(allEnabled.prefix(35))
-        searchProgress = "正在并发检索 \(enabledSources.count) 个书源..."
-        
-        Task {
-            var allResults: [Book] = []
-            
-            await withTaskGroup(of: [Book]?.self) { group in
-                for source in enabledSources {
-                    group.addTask {
-                        do {
-                            let (html, finalUrl) = try await NetworkManager.shared.executeSearch(source: source, keyword: keyword)
-                            let parsed = try LegadoParser.shared.parseSearch(html: html, baseUrl: finalUrl, source: source)
-                            return parsed
-                        } catch {
-                            return nil
-                        }
-                    }
-                }
-                
-                var finishedCount = 0
-                for await books in group {
-                    finishedCount += 1
-                    if let books = books, !books.isEmpty {
-                        allResults.append(contentsOf: books)
-                        let sortedSnapshot = sortResultsByRelevance(allResults, keyword: keyword)
-                        let currentFinished = finishedCount
-                        await MainActor.run {
-                            self.searchResults = sortedSnapshot
-                            self.searchProgress = "已检索 \(currentFinished)/\(enabledSources.count) 个书源 · 找到 \(sortedSnapshot.count) 本结果"
-                        }
-                    }
-                }
-            }
-            
-            let finalSorted = sortResultsByRelevance(allResults, keyword: keyword)
-            await MainActor.run {
-                self.searchResults = finalSorted
-                self.isSearching = false
-                self.searchProgress = "搜索完成 · 共找到 \(finalSorted.count) 条结果（已按匹配度置顶）"
-            }
-        }
+        submittedKeyword = keyword
+        searchSession.start(keyword: keyword, sources: storage.bookSources)
     }
+
 }
 
 // MARK: - Recommended Novel Leaderboard Card
