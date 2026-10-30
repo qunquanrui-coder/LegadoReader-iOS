@@ -7,6 +7,12 @@ public enum ReaderPresentation: String, Equatable {
 
 /// Layout depends on this window's safe reading area, never a device name or pixel resolution.
 public enum ReaderLayoutPolicy {
+    /// Typography follows available width independently of the current font and page mode,
+    /// so a larger saved font cannot repeatedly switch the active preference profile.
+    public static func typographyProfile(availableWidth: CGFloat) -> ReaderViewportProfile {
+        availableWidth.isFinite && availableWidth >= 600 ? .wide : .compact
+    }
+
     public static func presentation(size: CGSize, preferred: ReaderPageTurnMode,
                                     autoSpread: Bool, fontSize: CGFloat, spineWidth: CGFloat) -> ReaderPresentation {
         let minimumColumn = max(250, fontSize * 11 + 36)

@@ -146,6 +146,36 @@ final class BackupMergeTests: XCTestCase {
         XCTAssertTrue(StorageManager.isNewerReadingState(high, than: low))
         XCTAssertFalse(StorageManager.isNewerReadingState(low, than: high))
     }
+
+    func testOlderBackupCannotReplaceNewerLocalCharacterOffset() {
+        var local = book(chapter: 4, paragraph: 3, readAt: Date(timeIntervalSince1970: 200))
+        local.currentCharacterOffset = 137
+        var backup = book(chapter: 4, paragraph: 3, readAt: Date(timeIntervalSince1970: 100))
+        backup.currentCharacterOffset = 20
+        let result = StorageManager.mergeBackupState(
+            localBooks: [local], localPositions: [key(local): [4, 3, 137]], localTitles: [:],
+            backupBooks: [backup], backupPositions: [key(backup): [4, 3, 20]], backupTitles: [:])
+        XCTAssertEqual(result.bookshelf[0].currentCharacterOffset, 137)
+        XCTAssertEqual(result.positions[key(local)], [4, 3, 137])
+    }
+
+    func testNewerBackupRestoresCharacterOffsetAndExportPayloadKeepsIt() throws {
+        let local = book(chapter: 4, paragraph: 3, readAt: Date(timeIntervalSince1970: 100))
+        var backup = book(chapter: 4, paragraph: 3, readAt: Date(timeIntervalSince1970: 200))
+        backup.currentCharacterOffset = 137
+        let result = StorageManager.mergeBackupState(
+            localBooks: [local], localPositions: [key(local): [4, 3]], localTitles: [:],
+            backupBooks: [backup], backupPositions: [key(backup): [4, 3, 137]], backupTitles: [:])
+        XCTAssertEqual(result.bookshelf[0].currentCharacterOffset, 137)
+        XCTAssertEqual(result.positions[key(local)], [4, 3, 137])
+
+        let payload = StorageManager.FullBackupPayload(bookshelf: result.bookshelf, bookSources: [],
+            readerConfig: .default, lastReadBookId: backup.id, positionMap: result.positions, chapterTitleMap: result.titles)
+        let decoded = try JSONDecoder().decode(StorageManager.FullBackupPayload.self,
+                                             from: JSONEncoder().encode(payload))
+        XCTAssertEqual(decoded.bookshelf[0].currentCharacterOffset, 137)
+        XCTAssertEqual(decoded.positionMap[key(local)], [4, 3, 137])
+    }
 }
 
 final class TocChapterResolutionTests: XCTestCase {

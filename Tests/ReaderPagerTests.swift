@@ -5,6 +5,35 @@ import UIKit
 
 final class ReaderPagerTests: XCTestCase {
     @MainActor
+    func testChangingTapModeUpdatesLiveGestureRoutingWithoutReplacingPagerOrProgress() throws {
+        let controller = ReaderPagerController()
+        var regions: [ReaderPageTapRegion] = []
+        var selected: [Int] = []
+        @MainActor func configureTapMode(_ mode: ReaderTapMode) {
+            controller.configure(count: 3, selection: 1, identity: "same chapter", animateChanges: false, tapMode: mode,
+                                 page: { AnyView(Text("Page \($0)")) }, onSelection: { selected.append($0) },
+                                 onTap: { regions.append($0) })
+        }
+        configureTapMode(.balanced)
+        let initialPager = try XCTUnwrap(controller.pager)
+        controller.handleTap(at: 0.5)
+        configureTapMode(.rightHanded)
+        controller.handleTap(at: 0.5)
+        controller.handleTap(at: 0.2)
+        configureTapMode(.leftHanded)
+        controller.handleTap(at: 0.1)
+        controller.handleTap(at: 0.9)
+        controller.handleTap(at: .nan)
+        XCTAssertEqual(regions, [.center, .forward, .center, .forward, .backward])
+        XCTAssertTrue(controller.pager === initialPager)
+        XCTAssertEqual(controller.visibleIndex, 1)
+        XCTAssertTrue(selected.isEmpty)
+        controller.invalidate()
+        controller.handleTap(at: 0.1)
+        XCTAssertEqual(regions.count, 5)
+    }
+
+    @MainActor
     func testProgrammaticTurnsExcludeDragsButKeepTapsAndNativeSwipesAvailable() throws {
         let recorder = TransitionRecorder()
         let controller = recorder.makeController()

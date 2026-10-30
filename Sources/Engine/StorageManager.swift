@@ -202,6 +202,10 @@ public class StorageManager: ObservableObject {
     /// Keep shelf identity and reading state when the same work is found on a different site.
     static func bookByReplacingSource(of existing: Book, with incoming: Book) -> Book {
         var updated = existing
+        if existing.sourceUrl != incoming.sourceUrl || existing.bookUrl != incoming.bookUrl {
+            // Character offsets refer to the old site's formatted paragraph text.
+            updated.currentCharacterOffset = 0
+        }
         updated.sourceUrl = incoming.sourceUrl
         updated.sourceName = incoming.sourceName
         updated.bookUrl = incoming.bookUrl
@@ -244,6 +248,10 @@ public class StorageManager: ObservableObject {
         let sourceChanged = (original.sourceUrl != newBook.sourceUrl) || (original.bookUrl != newBook.bookUrl)
         let updated = Self.bookByReplacingSource(of: original, with: newBook)
         if sourceChanged {
+            let savedPosition = getSavedReadingPosition(for: original)
+            savePositionEntry(title: original.title, author: original.author,
+                              chapterIndex: savedPosition.chapterIndex, paragraphIndex: savedPosition.paragraphIndex,
+                              characterOffset: 0)
             // Always invalidate the canonical shelf cache, including switches initiated from a search result.
             clearChapterCache(bookId: original.id)
             if book.id != original.id { clearChapterCache(bookId: book.id) }
@@ -278,7 +286,8 @@ public class StorageManager: ObservableObject {
         chapterIndex: Int,
         chapterTitle: String,
         totalChapters: Int,
-        paragraphIndex: Int = 0
+        paragraphIndex: Int = 0,
+        characterOffset: Int = 0
     ) {
         let now = Date()
         if let index = bookshelf.firstIndex(where: {
@@ -288,6 +297,7 @@ public class StorageManager: ObservableObject {
             updated.currentChapterIndex = chapterIndex
             updated.currentChapterTitle = chapterTitle
             updated.currentParagraphIndex = paragraphIndex
+            updated.currentCharacterOffset = max(0, characterOffset)
             updated.totalChapters = max(updated.totalChapters, totalChapters)
             updated.lastReadTime = now
             
@@ -303,18 +313,21 @@ public class StorageManager: ObservableObject {
                 bookshelf[0] = updated
             }
             
-            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex, chapterTitle: chapterTitle)
+            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex,
+                              characterOffset: characterOffset, chapterTitle: chapterTitle)
             saveBookshelf()
         } else if let t = bookTitle, let a = bookAuthor {
-            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex, chapterTitle: chapterTitle)
+            savePositionEntry(title: t, author: a, chapterIndex: chapterIndex, paragraphIndex: paragraphIndex,
+                              characterOffset: characterOffset, chapterTitle: chapterTitle)
         }
     }
     
-    private func savePositionEntry(title: String, author: String, chapterIndex: Int, paragraphIndex: Int, chapterTitle: String? = nil) {
+    private func savePositionEntry(title: String, author: String, chapterIndex: Int, paragraphIndex: Int,
+                                   characterOffset: Int = 0, chapterTitle: String? = nil) {
         let key = Self.bookKey(title: title, author: author)
-        var map = (UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]]) ?? [:]
-        map[key] = [chapterIndex, paragraphIndex]
-        UserDefaults.standard.set(map, forKey: positionMapKey)
+        ReadingPositionStore(key: positionMapKey).set(
+            StoredReadingPosition(chapterIndex: chapterIndex, paragraphIndex: paragraphIndex, characterOffset: characterOffset),
+            for: key)
         
         if let chTitle = chapterTitle, !chTitle.isEmpty {
             var titleMap = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
@@ -323,16 +336,15 @@ public class StorageManager: ObservableObject {
         }
     }
     
-    public func getSavedReadingPosition(for book: Book) -> (chapterIndex: Int, paragraphIndex: Int) {
+    public func getSavedReadingPosition(for book: Book) -> (chapterIndex: Int, paragraphIndex: Int, characterOffset: Int) {
         let key = Self.bookKey(title: book.title, author: book.author)
-        if let map = UserDefaults.standard.dictionary(forKey: positionMapKey) as? [String: [Int]],
-           let pair = map[key], pair.count >= 2 {
-            return (pair[0], pair[1])
+        if let saved = ReadingPositionStore(key: positionMapKey).position(for: key) {
+            return (saved.chapterIndex, saved.paragraphIndex, saved.characterOffset)
         }
         if let shelfBook = bookshelf.first(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
-            return (shelfBook.currentChapterIndex, shelfBook.currentParagraphIndex ?? 0)
+            return (shelfBook.currentChapterIndex, shelfBook.currentParagraphIndex ?? 0, max(0, shelfBook.currentCharacterOffset ?? 0))
         }
-        return (book.currentChapterIndex, book.currentParagraphIndex ?? 0)
+        return (book.currentChapterIndex, book.currentParagraphIndex ?? 0, max(0, book.currentCharacterOffset ?? 0))
     }
     
     public func saveBookshelf() {
@@ -511,7 +523,9 @@ public class StorageManager: ObservableObject {
         // bookshelf card, the reader's getSavedReadingPosition() and the title cache agree.
         for book in merged {
             let key = bookKey(title: book.title, author: book.author)
-            positions[key] = [book.currentChapterIndex, book.currentParagraphIndex ?? 0]
+            positions[key] = StoredReadingPosition(chapterIndex: book.currentChapterIndex,
+                                                   paragraphIndex: book.currentParagraphIndex ?? 0,
+                                                   characterOffset: book.currentCharacterOffset ?? 0).values
             if let chapterTitle = book.currentChapterTitle, !chapterTitle.isEmpty {
                 titles[key] = chapterTitle
             }

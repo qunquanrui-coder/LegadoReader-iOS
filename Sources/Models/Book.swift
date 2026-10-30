@@ -15,6 +15,7 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
     public var currentChapterIndex: Int
     public var currentChapterTitle: String?
     public var currentParagraphIndex: Int?
+    public var currentCharacterOffset: Int?
     public var lastReadTime: Date
     public var totalChapters: Int
     
@@ -30,6 +31,7 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
         currentChapterIndex: Int = 0,
         currentChapterTitle: String? = nil,
         currentParagraphIndex: Int? = 0,
+        currentCharacterOffset: Int? = 0,
         lastReadTime: Date = Date(),
         totalChapters: Int = 0
     ) {
@@ -47,7 +49,33 @@ public struct Book: Identifiable, Codable, Equatable, Hashable {
         self.currentChapterIndex = currentChapterIndex
         self.currentChapterTitle = currentChapterTitle
         self.currentParagraphIndex = currentParagraphIndex
+        self.currentCharacterOffset = max(0, currentCharacterOffset ?? 0)
         self.lastReadTime = lastReadTime
         self.totalChapters = totalChapters
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, author, coverUrl, intro, latestChapter, sourceUrl, sourceName, bookUrl
+        case currentChapterIndex, currentChapterTitle, currentParagraphIndex, currentCharacterOffset
+        case lastReadTime, totalChapters
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        author = try values.decode(String.self, forKey: .author)
+        coverUrl = try values.decodeIfPresent(String.self, forKey: .coverUrl)
+        intro = try values.decodeIfPresent(String.self, forKey: .intro)
+        latestChapter = try values.decodeIfPresent(String.self, forKey: .latestChapter)
+        sourceUrl = try values.decode(String.self, forKey: .sourceUrl)
+        sourceName = try values.decode(String.self, forKey: .sourceName)
+        bookUrl = try values.decode(String.self, forKey: .bookUrl)
+        currentChapterIndex = try values.decode(Int.self, forKey: .currentChapterIndex)
+        currentChapterTitle = try values.decodeIfPresent(String.self, forKey: .currentChapterTitle)
+        currentParagraphIndex = try values.decodeIfPresent(Int.self, forKey: .currentParagraphIndex)
+        currentCharacterOffset = max(0, try values.decodeIfPresent(Int.self, forKey: .currentCharacterOffset) ?? 0)
+        lastReadTime = try values.decode(Date.self, forKey: .lastReadTime)
+        totalChapters = try values.decode(Int.self, forKey: .totalChapters)
     }
 }

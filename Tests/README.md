@@ -46,3 +46,17 @@ visible movement and that its hosted page retains the measured text viewport.
 
 On a device, check left/right taps, dragging then cancelling, several rapid taps, chapter
 boundaries, and changing the Duo window during a turn. The center tap still opens the menu.
+
+## Duo reading preferences and resume (v3.6.0)
+
+ReaderChapterLandingTests cover reverse-turn chapter tails, odd/even spreads, deferred viewport
+measurement, stale chapter identities and long paragraph offsets. ReadingPositionTests and
+BackupMergeTests cover legacy JSON/maps, isolated UserDefaults round trips, source replacement
+and winner-consistent backup merging. ReaderPreferenceTests and ReaderPagerTests cover independent
+window typography and configurable tap regions. DuoReadingFlowTests persist an actual paginator
+fragment from the first paragraph and relocate it under another window's typography.
+
+Device acceptance: reopen a long paragraph in each paginated mode, reverse-turn across a cached
+and uncached chapter, resize while that chapter loads, adjust each typography profile independently,
+and try all three tap modes. Reverse-turning while listening pauses the new chapter at its landing
+paragraph; resuming speech begins at that paragraph's start. Scroll mode resumes by paragraph.

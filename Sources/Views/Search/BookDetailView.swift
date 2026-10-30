@@ -122,6 +122,7 @@ public struct BookDetailView: View {
                         if let saved = storage.bookshelf.first(where: { $0.title == book.title && $0.author == book.author }) {
                             book.currentChapterIndex = saved.currentChapterIndex
                             book.currentParagraphIndex = saved.currentParagraphIndex
+                            book.currentCharacterOffset = saved.currentCharacterOffset
                             book.currentChapterTitle = saved.currentChapterTitle
                         }
                         addCurrentBookToShelf()
@@ -265,6 +266,7 @@ public struct BookDetailView: View {
                                     book.currentChapterIndex = ch.index
                                     book.currentChapterTitle = ch.title
                                     book.currentParagraphIndex = 0
+                                    book.currentCharacterOffset = 0
                                     addCurrentBookToShelf()
                                     // An explicit chapter selection takes precedence over source-change relocation.
                                     _ = storage.consumePendingRelocation(for: book)
@@ -339,6 +341,7 @@ public struct BookDetailView: View {
                 onSelectChapter: { idx in
                     book.currentChapterIndex = idx
                     book.currentParagraphIndex = 0
+                    book.currentCharacterOffset = 0
                     if idx < chapters.count {
                         book.currentChapterTitle = chapters[idx].title
                     }

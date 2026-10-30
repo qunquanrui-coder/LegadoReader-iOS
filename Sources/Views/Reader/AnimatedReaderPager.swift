@@ -1,10 +1,6 @@
 import SwiftUI
 import UIKit
 
-enum ReaderPageTapRegion {
-    case backward, center, forward
-}
-
 /// A native pager animates both tap-driven changes and interactive swipes. SwiftUI's page-style
 /// TabView does not consistently animate a programmatic selection change on all supported OSes.
 struct AnimatedReaderPager<Content: View>: UIViewControllerRepresentable {
@@ -12,6 +8,7 @@ struct AnimatedReaderPager<Content: View>: UIViewControllerRepresentable {
     let count: Int
     let identity: AnyHashable
     let animateChanges: Bool
+    var tapMode: ReaderTapMode = .balanced
     let onTap: (ReaderPageTapRegion) -> Void
     var onBoundarySwipe: ((Bool) -> Void)? = nil
     @ViewBuilder let page: (Int) -> Content
@@ -25,7 +22,7 @@ struct AnimatedReaderPager<Content: View>: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: ReaderPagerController, context: Context) {
         controller.configure(count: count, selection: selection, identity: identity,
-                             animateChanges: animateChanges, reduceMotion: reduceMotion,
+                             animateChanges: animateChanges, reduceMotion: reduceMotion, tapMode: tapMode,
                              page: { AnyView(page($0)) }, onSelection: { selection = $0 },
                              onTap: onTap, onBoundarySwipe: onBoundarySwipe)
     }
@@ -53,6 +50,7 @@ final class ReaderPagerController: UIViewController, UIPageViewControllerDataSou
     private var requestedSelection = 0
     private var animateChanges = false
     private var reduceMotion = false
+    private var tapMode: ReaderTapMode = .balanced
     private var nativeGestureRequest: Int?
     private var boundaryGestureStart: (index: Int, generation: UUID)?
     private var pages: [Int: ReaderHostedPageController] = [:]
@@ -76,7 +74,7 @@ final class ReaderPagerController: UIViewController, UIPageViewControllerDataSou
     }
 
     func configure(count: Int, selection: Int, identity: AnyHashable,
-                   animateChanges: Bool, reduceMotion: Bool = false,
+                   animateChanges: Bool, reduceMotion: Bool = false, tapMode: ReaderTapMode = .balanced,
                    page: @escaping (Int) -> AnyView, onSelection: @escaping (Int) -> Void,
                    onTap: @escaping (ReaderPageTapRegion) -> Void = { _ in },
                    onBoundarySwipe: ((Bool) -> Void)? = nil) {
@@ -87,6 +85,7 @@ final class ReaderPagerController: UIViewController, UIPageViewControllerDataSou
         self.onBoundarySwipe = onBoundarySwipe
         self.animateChanges = animateChanges
         self.reduceMotion = reduceMotion
+        self.tapMode = tapMode
         let count = max(0, count)
         let target = min(max(0, selection), max(0, count - 1))
         requestedSelection = target
@@ -252,8 +251,12 @@ final class ReaderPagerController: UIViewController, UIPageViewControllerDataSou
 
     @objc private func didTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended, pageCount > 0, view.bounds.width > 0 else { return }
-        let fraction = recognizer.location(in: view).x / view.bounds.width
-        onTap(fraction < 1.0 / 3 ? .backward : (fraction > 2.0 / 3 ? .forward : .center))
+        handleTap(at: recognizer.location(in: view).x / view.bounds.width)
+    }
+
+    func handleTap(at fraction: CGFloat) {
+        guard pageCount > 0, fraction.isFinite else { return }
+        onTap(tapMode.region(at: fraction))
     }
 
     @objc private func didPan(_ recognizer: UIPanGestureRecognizer) {

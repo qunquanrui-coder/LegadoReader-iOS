@@ -84,6 +84,60 @@ public enum ChineseConversionMode: String, CaseIterable, Codable {
     }
 }
 
+public enum ReaderViewportProfile: String, Codable, CaseIterable {
+    case compact, wide
+
+    public var title: String { self == .compact ? "窄窗口" : "宽窗口" }
+}
+
+public struct ReaderTypography: Codable, Equatable {
+    public var fontSize: CGFloat
+    public var lineSpacing: CGFloat
+
+    public init(fontSize: CGFloat, lineSpacing: CGFloat) {
+        self.fontSize = fontSize.isFinite ? min(80, max(8, fontSize)) : 19
+        self.lineSpacing = lineSpacing.isFinite ? min(80, max(0, lineSpacing)) : 10
+    }
+}
+
+public enum ReaderPageTapRegion: Equatable {
+    case backward, center, forward
+}
+
+public enum ReaderTapMode: String, Codable, CaseIterable {
+    case balanced, rightHanded, leftHanded
+
+    public var title: String {
+        switch self {
+        case .balanced: return "均衡"
+        case .rightHanded: return "右手"
+        case .leftHanded: return "左手"
+        }
+    }
+
+    public var explanation: String {
+        switch self {
+        case .balanced: return "左侧上一页，中间菜单，右侧下一页"
+        case .rightHanded: return "左侧 15% 上一页、其后 20% 菜单，右侧 65% 下一页"
+        case .leftHanded: return "左侧 65% 下一页、其后 20% 菜单，右侧 15% 上一页"
+        }
+    }
+
+    /// Fractions refer to the whole reading area, including both pages in a spread.
+    public func region(at fraction: CGFloat) -> ReaderPageTapRegion {
+        guard fraction.isFinite else { return .center }
+        let x = min(1, max(0, fraction))
+        switch self {
+        case .balanced:
+            return x < 1.0 / 3 ? .backward : (x > 2.0 / 3 ? .forward : .center)
+        case .rightHanded:
+            return x < 0.15 ? .backward : (x < 0.35 ? .center : .forward)
+        case .leftHanded:
+            return x < 0.65 ? .forward : (x < 0.85 ? .center : .backward)
+        }
+    }
+}
+
 public struct ReaderConfig: Codable, Equatable {
     public var fontSize: CGFloat
     public var lineSpacing: CGFloat
@@ -94,6 +148,34 @@ public struct ReaderConfig: Codable, Equatable {
     public var customPurifyRules: [String]?
     public var autoDuoBookSpread: Bool?
     public var showDuoSpine: Bool? = nil
+    public var compactTypography: ReaderTypography? = nil
+    public var wideTypography: ReaderTypography? = nil
+    public var tapMode: ReaderTapMode? = nil
+
+    public func typography(for profile: ReaderViewportProfile) -> ReaderTypography {
+        let saved = profile == .compact ? compactTypography : wideTypography
+        return ReaderTypography(fontSize: saved?.fontSize ?? fontSize,
+                                lineSpacing: saved?.lineSpacing ?? lineSpacing)
+    }
+
+    public mutating func setTypography(_ typography: ReaderTypography, for profile: ReaderViewportProfile) {
+        let normalized = ReaderTypography(fontSize: typography.fontSize, lineSpacing: typography.lineSpacing)
+        if profile == .compact { compactTypography = normalized }
+        else { wideTypography = normalized }
+    }
+
+    public func applyingTypography(for profile: ReaderViewportProfile) -> ReaderConfig {
+        var copy = self
+        let selected = typography(for: profile)
+        copy.fontSize = selected.fontSize
+        copy.lineSpacing = selected.lineSpacing
+        return copy
+    }
+
+    public var effectiveTapMode: ReaderTapMode {
+        get { tapMode ?? .balanced }
+        set { tapMode = newValue }
+    }
     
     public static var isDuoEditionBuild: Bool {
         (Bundle.main.object(forInfoDictionaryKey: "IS_IPHONE_DUO_EDITION") as? Bool) ?? false

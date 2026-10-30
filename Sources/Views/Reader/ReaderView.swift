@@ -72,11 +72,13 @@ public struct ReaderView: View {
         }) ?? book
         initialBook.currentChapterIndex = saved.chapterIndex
         initialBook.currentParagraphIndex = saved.paragraphIndex
+        initialBook.currentCharacterOffset = saved.characterOffset
         _book = State(initialValue: initialBook)
         _currentChapterIndex = State(initialValue: saved.chapterIndex)
         _currentParagraphIndex = State(initialValue: saved.paragraphIndex)
-        _targetRestoreParagraph = State(initialValue: saved.paragraphIndex > 0 ? saved.paragraphIndex : nil)
-        _isRestoringPosition = State(initialValue: saved.paragraphIndex > 0)
+        _currentCharacterOffset = State(initialValue: saved.characterOffset)
+        _targetRestoreParagraph = State(initialValue: saved.paragraphIndex > 0 || saved.characterOffset > 0 ? saved.paragraphIndex : nil)
+        _isRestoringPosition = State(initialValue: saved.paragraphIndex > 0 || saved.characterOffset > 0)
     }
 
     private var currentChapter: Chapter? {
@@ -94,6 +96,8 @@ public struct ReaderView: View {
     @State private var readingLayout: ReaderPresentation = .scroll
     @State private var readingLayoutReady = false
     @State private var layoutRestoration = ReaderLayoutRestoration()
+    @State private var chapterLanding = ReaderChapterLanding()
+    @State private var lastFormattingConfig: ReaderConfig?
     /// Actual measured page viewport size from GeometryReader (single page width & height)
     @State private var pageViewportSize: CGSize = .zero
     /// Reference holder for progress-save throttling (mutating it never triggers a re-render).
@@ -108,7 +112,9 @@ public struct ReaderView: View {
     }
 
     private var spineWidth: CGFloat { storage.readerConfig.effectiveShowDuoSpine ? 18 : 1 }
-    private var pageStyle: ReaderPageStyle { ReaderPageStyle(config: storage.readerConfig) }
+    private var typographyProfile: ReaderViewportProfile { ReaderLayoutPolicy.typographyProfile(availableWidth: readingAreaSize.width) }
+    private var typography: ReaderTypography { storage.readerConfig.typography(for: typographyProfile) }
+    private var pageStyle: ReaderPageStyle { ReaderPageStyle(config: storage.readerConfig.applyingTypography(for: typographyProfile)) }
     private var isDuoSpreadActive: Bool { readingLayout == .spread }
 
     private func updateReaderViewport(_ size: CGSize, force: Bool = false) {
@@ -128,7 +134,7 @@ public struct ReaderView: View {
         readingLayout = ReaderLayoutPolicy.presentation(size: size,
             preferred: storage.readerConfig.effectivePageTurnMode,
             autoSpread: storage.readerConfig.effectiveAutoDuoSpread,
-            fontSize: storage.readerConfig.fontSize, spineWidth: spineWidth)
+            fontSize: typography.fontSize, spineWidth: spineWidth)
         pageViewportSize = CGSize(width: readingLayout == .spread ? (size.width - spineWidth) / 2 : size.width,
                                   height: max(0, size.height - 22))
         rebuildLayout()
@@ -136,8 +142,25 @@ public struct ReaderView: View {
             readingLayout = .scroll
         }
         readingLayoutReady = true
+        if !formattedParagraphs.isEmpty {
+            let paragraph = min(max(0, currentParagraphIndex), formattedParagraphs.count - 1)
+            let offset = paragraph == currentParagraphIndex
+                ? min(max(0, currentCharacterOffset), (formattedParagraphs[paragraph] as NSString).length) : 0
+            if paragraph != currentParagraphIndex || offset != currentCharacterOffset {
+                currentParagraphIndex = paragraph
+                currentCharacterOffset = offset
+                targetRestoreParagraph = paragraph
+                layoutRestoration.begin(ReaderTextAnchor(chapterURL: currentChapter?.url ?? "",
+                                                         paragraphIndex: paragraph, characterOffset: offset))
+            }
+        }
+        let landedAtChapterEnd = applyPendingChapterLanding()
         restorePageFromParagraphIfNeeded()
         if readingLayout != .scroll && !(readingLayout == .spread && showDuoSidebarTOC) { finishPaginatedRestoration() }
+        if landedAtChapterEnd, let chapter = currentChapter {
+            saveProgress(force: true)
+            resumeTTSIfNeeded(autoContinueTTS: pendingTTSCarryOver, chapter: chapter)
+        }
     }
 
     private func rebuildLayout() {
@@ -147,8 +170,22 @@ public struct ReaderView: View {
                                                style: pageStyle, viewport: pageViewportSize)
     }
 
+    private func applyPendingChapterLanding() -> Bool {
+        guard !isLoading, let chapterURL = currentChapter?.url, loadedContentChapterURL == chapterURL,
+              let target = chapterLanding.consume(chapterURL: chapterURL, paragraphs: formattedParagraphs,
+                  pages: readerPages, presentation: readingLayout, viewportReady: readingLayoutReady) else { return false }
+        currentParagraphIndex = target.anchor.paragraphIndex
+        currentCharacterOffset = target.anchor.characterOffset
+        currentPageIndex = target.pageIndex
+        currentSpreadIndex = target.spreadIndex
+        targetRestoreParagraph = target.anchor.paragraphIndex
+        layoutRestoration.begin(target.anchor)
+        isRestoringPosition = true
+        return true
+    }
+
     private var liveSpokenParagraph: Int? {
-        guard speech.isSpeaking, speech.context?.book.id == book.id,
+        guard speech.isSpeaking, !speech.isPaused, speech.context?.book.id == book.id,
               speech.context?.chapterIndex == currentChapterIndex else { return nil }
         return min(speech.currentParagraphIndex, max(0, formattedParagraphs.count - 1))
     }
@@ -165,6 +202,7 @@ public struct ReaderView: View {
             self.targetRestoreParagraph = nil
             self.restorePageFromParagraphIfNeeded()
             self.isRestoringPosition = false
+            self.saveProgress(force: true)
         }
     }
 
@@ -177,7 +215,7 @@ public struct ReaderView: View {
                 else { verticalScrollReaderView }
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .onAppear { updateReaderViewport(geo.size) }
+            .onAppear { updateReaderViewport(geo.size, force: chapterLanding.pendingChapterURL != nil) }
             .onChange(of: geo.size) { size in updateReaderViewport(size) }
             .accessibilityIdentifier("reader.area.\(readingLayout.rawValue)")
         }
@@ -304,14 +342,17 @@ public struct ReaderView: View {
         }
         .statusBar(hidden: !showHUD)
         .onAppear {
+            lastFormattingConfig = storage.readerConfig
             setupSpeechCallbacks()
             initializeReader()
         }
         .onDisappear {
+            saveProgress(force: true)
             // A dismissed reader must never commit a late load into shared progress or speech.
             // Invalidate identities as well as cancelling: transports may complete despite cancellation.
             loadTokens.invalidateAll()
             layoutRestoration.cancel()
+            chapterLanding.cancel()
             chapterLoadTask?.cancel()
             chapterLoadTask = nil
             tocLoadTask?.cancel()
@@ -320,7 +361,6 @@ public struct ReaderView: View {
             tocRefreshTask = nil
             prefetchTask?.cancel()
             prefetchTask = nil
-            saveProgress(force: true)
             // Cancel any pending "start listening on the new chapter" intent: the page is gone.
             pendingListenStart = false
             pendingTTSCarryOver = false
@@ -336,7 +376,13 @@ public struct ReaderView: View {
                 saveProgress(force: true)
             }
         }
-        .onChange(of: storage.readerConfig) { _ in
+        .onChange(of: storage.readerConfig) { config in
+            if let previous = lastFormattingConfig,
+               previous.effectiveChineseConversion != config.effectiveChineseConversion
+                || previous.effectivePurifyRules != config.effectivePurifyRules {
+                currentCharacterOffset = 0
+            }
+            lastFormattingConfig = config
             updateReaderViewport(readingAreaSize, force: true)
         }
         .sheet(isPresented: $showChapterList) {
@@ -350,7 +396,7 @@ public struct ReaderView: View {
             )
         }
         .sheet(isPresented: $showSettings) {
-            ReaderSettingsSheet()
+            ReaderSettingsSheet(initialTypographyProfile: typographyProfile)
         }
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
@@ -368,6 +414,7 @@ public struct ReaderView: View {
                     showTTSBar = false
                 }
                 self.book = newBook
+                self.currentCharacterOffset = 0
                 initializeReader()
             }
         }
@@ -426,7 +473,7 @@ public struct ReaderView: View {
     private var verticalScrollReaderView: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: storage.readerConfig.lineSpacing + 14) {
+                LazyVStack(alignment: .leading, spacing: typography.lineSpacing + 14) {
                     Color.clear
                         .frame(height: 1)
                         .id("chapterTop")
@@ -434,7 +481,7 @@ public struct ReaderView: View {
                     if let chapter = currentChapter {
                         Text(storage.readerConfig.effectiveChineseConversion.convert(chapter.title))
                             .font(.system(
-                                size: storage.readerConfig.fontSize + 5,
+                                size: typography.fontSize + 5,
                                 weight: .bold,
                                 design: storage.readerConfig.fontDesign.swiftUIDesign
                             ))
@@ -447,10 +494,10 @@ public struct ReaderView: View {
                         let isSpoken = speech.isSpeaking && ownsSpeech && speech.currentParagraphIndex == idx
                         Text(paragraph)
                             .font(.system(
-                                size: storage.readerConfig.fontSize,
+                                size: typography.fontSize,
                                 design: storage.readerConfig.fontDesign.swiftUIDesign
                             ))
-                            .lineSpacing(storage.readerConfig.lineSpacing)
+                            .lineSpacing(typography.lineSpacing)
                             .foregroundColor(isSpoken ? .indigo : storage.readerConfig.theme.textColor)
                             .padding(.vertical, isSpoken ? 4 : 0)
                             .padding(.horizontal, isSpoken ? 6 : 0)
@@ -572,6 +619,7 @@ public struct ReaderView: View {
             self.targetRestoreParagraph = nil
             _ = self.layoutRestoration.finish(token, chapterURL: chapterURL, liveParagraphIndex: self.liveSpokenParagraph)
             self.isRestoringPosition = false
+            self.saveProgress(force: true)
         }
     }
 
@@ -643,6 +691,7 @@ public struct ReaderView: View {
     private var horizontalPageReaderView: some View {
         AnimatedReaderPager(selection: pagerSelection(spread: false), count: readerPages.count,
                             identity: AnyHashable(layoutRestoration.token), animateChanges: !isRestoringPosition,
+                            tapMode: storage.readerConfig.effectiveTapMode,
                             onTap: { handlePageTap($0, spread: false) },
                             onBoundarySwipe: { turnPage(backward: $0, spread: false) }) { index in
             if readerPages.indices.contains(index) {
@@ -692,6 +741,7 @@ public struct ReaderView: View {
             } else {
                 AnimatedReaderPager(selection: pagerSelection(spread: true), count: (readerPages.count + 1) / 2,
                                     identity: AnyHashable(layoutRestoration.token), animateChanges: !isRestoringPosition,
+                                    tapMode: storage.readerConfig.effectiveTapMode,
                                     onTap: { handlePageTap($0, spread: true) },
                                     onBoundarySwipe: { turnPage(backward: $0, spread: true) }) { spread in
                     if readerPages.indices.contains(spread * 2) {
@@ -1226,6 +1276,7 @@ public struct ReaderView: View {
 
     private func initializeReader() {
         chapterTurnBackward = nil
+        chapterLanding.cancel()
         tocLoadTask?.cancel()
         tocRefreshTask?.cancel()
         chapterLoadTask?.cancel()
@@ -1301,6 +1352,8 @@ public struct ReaderView: View {
 
         // Source switch: re-locate by title in the new site's chapter numbering.
         if consumeRelocation, let relocateTitle = storage.consumePendingRelocation(for: book) {
+            chapterLanding.cancel()
+            currentCharacterOffset = 0
             let matched = ChapterTextFormatter.bestMatchIndex(title: relocateTitle, in: newChapters, nearIndex: previousIndex)
             currentChapterIndex = matched ?? min(max(0, previousIndex), newChapters.count - 1)
             currentPageIndex = 0
@@ -1320,8 +1373,15 @@ public struct ReaderView: View {
             fallbackIndex: previousIndex
         )
         currentChapterIndex = resolved
+        if previousURL == nil && resolved != previousIndex {
+            currentParagraphIndex = 0
+            currentCharacterOffset = 0
+            targetRestoreParagraph = nil
+        }
         let movedToDifferentChapter = previousURL.map { $0 != newChapters[resolved].url } ?? false
         if movedToDifferentChapter {
+            chapterLanding.cancel()
+            currentCharacterOffset = 0
             currentPageIndex = 0
             currentSpreadIndex = 0
             visibleParagraphIndices.removeAll()
@@ -1382,13 +1442,17 @@ public struct ReaderView: View {
         var resumeTTS = autoContinueTTS
         if speech.isSpeaking && ownsSpeech {
             pendingTTSCarryOver = true
-            pendingTTSPaused = speech.isPaused
+            // Reading backwards lands at the chapter tail. Keep listening paused there;
+            // resuming automatically from the chapter start would undo the visual landing.
+            pendingTTSPaused = speech.isPaused || pageTurnBackward == true
             pendingTTSSession = speech.sessionStopCount
             resumeTTS = true
             speech.suspendForChapterTransition()
             showTTSBar = true
         }
         layoutRestoration.cancel()
+        chapterLanding.cancel()
+        if pageTurnBackward == true { chapterLanding.requestEnd(chapterURL: chapters[newIndex].url) }
         currentChapterIndex = newIndex
         currentParagraphIndex = 0
         currentCharacterOffset = 0
@@ -1474,6 +1538,9 @@ public struct ReaderView: View {
     /// Restarts TTS after a chapter switch (or after an explicit 听书 tap that happened
     /// before the chapter text existed). Never starts playback the user did not ask for.
     private func resumeTTSIfNeeded(autoContinueTTS: Bool, chapter: Chapter) {
+        // Loading can finish while the window is changing. Wait for its real geometry
+        // before resuming the paused listening session at the reverse-turn destination.
+        guard chapterLanding.pendingChapterURL != chapter.url else { return }
         if pendingListenStart {
             pendingListenStart = false
             speech.stop()
@@ -1499,7 +1566,7 @@ public struct ReaderView: View {
         pendingTTSCarryOver = false
         pendingTTSPaused = false
         speech.startReading(paragraphs: formattedParagraphs,
-                            fromIndex: 0,
+                            fromIndex: max(0, min(currentParagraphIndex, formattedParagraphs.count - 1)),
                             bookTitle: book.title,
                             chapterTitle: chapter.title,
                             initiallyPaused: wasPaused)
@@ -1634,8 +1701,10 @@ public struct ReaderView: View {
         let totalCh = chapters.count
         // Layout callbacks must not roll progress back while the new view finds its anchor.
         if isRestoringPosition && !force { return }
-        let paraIdx = layoutRestoration.anchor.flatMap { $0.chapterURL == ch.url ? $0.paragraphIndex : nil }
-            ?? currentParagraphIndex
+        let anchor = layoutRestoration.anchor.flatMap { $0.chapterURL == ch.url ? $0 : nil }
+        let liveParagraph = liveSpokenParagraph
+        let paraIdx = liveParagraph ?? anchor?.paragraphIndex ?? currentParagraphIndex
+        let offset = liveParagraph != nil ? 0 : (anchor?.characterOffset ?? currentCharacterOffset)
 
         let commitSave = {
             StorageManager.shared.updateBookProgress(
@@ -1645,7 +1714,8 @@ public struct ReaderView: View {
                 chapterIndex: chIdx,
                 chapterTitle: chTitle,
                 totalChapters: totalCh,
-                paragraphIndex: paraIdx
+                paragraphIndex: paraIdx,
+                characterOffset: offset
             )
         }
 
