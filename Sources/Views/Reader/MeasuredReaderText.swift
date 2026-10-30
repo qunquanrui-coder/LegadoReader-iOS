@@ -17,8 +17,16 @@ struct MeasuredReaderText: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.layoutManager.usesFontLeading = true
         view.adjustsFontForContentSizeCategory = false
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentCompressionResistancePriority(.required, for: .vertical)
         return view
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+        let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: ceil(height))
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
@@ -42,15 +50,13 @@ struct MeasuredReaderPage: View {
             if let title = page.title {
                 let text = style.attributedTitle(title)
                 MeasuredReaderText(text: text, color: UIColor(textColor))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: style.measuredHeight(of: text, width: textWidth))
+                    .frame(width: textWidth, height: style.measuredHeight(of: text, width: textWidth))
             }
             ForEach(page.items) { item in
                 let text = style.attributedBody(item.text)
                 let highlighted = highlightedParagraph == item.index
                 MeasuredReaderText(text: text, color: highlighted ? .systemIndigo : UIColor(textColor))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: style.measuredHeight(of: text, width: textWidth))
+                    .frame(width: textWidth, height: style.measuredHeight(of: text, width: textWidth))
                     .background(highlighted ? Color.indigo.opacity(0.10) : Color.clear)
                     .accessibilityLabel(item.text)
             }
