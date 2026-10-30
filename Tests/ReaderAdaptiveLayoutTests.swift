@@ -52,4 +52,15 @@ final class ReaderAdaptiveLayoutTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ReaderConfig.self, from: JSONSerialization.data(withJSONObject: json))
         XCTAssertFalse(decoded.effectiveShowDuoSpine)
     }
+
+    func testTitleOnlyOpeningPageAndLongParagraphPositionSurviveRepagination() {
+        let pages = [ReaderPage(items: [], title: "第一章"),
+                     ReaderPage(items: [PaginatedParagraph(index: 0, text: "开头", characterOffset: 0)]),
+                     ReaderPage(items: [PaginatedParagraph(index: 0, text: "中段", characterOffset: 200)]),
+                     ReaderPage(items: [PaginatedParagraph(index: 1, text: "结尾")])]
+        XCTAssertEqual(ReaderPageLocator.pageIndex(paragraphIndex: 0, characterOffset: 0, pages: pages), 0)
+        XCTAssertEqual(ReaderPageLocator.pageIndex(paragraphIndex: 0, characterOffset: 210, pages: pages), 2)
+        XCTAssertEqual(ReaderPageLocator.pageIndex(paragraphIndex: 1, characterOffset: 0, pages: pages), 3)
+        XCTAssertEqual(ReaderPageLocator.pageIndex(paragraphIndex: 999, characterOffset: 0, pages: pages), 3)
+    }
 }

@@ -7,7 +7,7 @@ final class ReaderPageRenderingTests: XCTestCase {
     @MainActor
     func testRenderedFragmentsFitAtCoverAndInnerPageWidths() {
         let paragraphs = [String(repeating: "分页后每一个字都必须在页面以内。👩🏽‍💻 ", count: 40), "章节最后一段必须保留。"]
-        for width: CGFloat in [235, 330, 430] {
+        for width in [CGFloat(235), CGFloat(330), CGFloat(430)] {
             let size = CGSize(width: width, height: 390)
             let style = ReaderPageStyle(config: .default)
             let pages = ReaderPaginator.paginate(paragraphs: paragraphs, chapterTitle: "第一章 完整分页",

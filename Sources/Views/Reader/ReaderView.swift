@@ -99,7 +99,10 @@ public struct ReaderView: View {
     
     private func applyChapterContent(_ text: String) {
         currentContent = text
-        rebuildLayout()
+        if readingAreaSize.width > 0 && readingAreaSize.height > 0 {
+            // New content can require a different fallback even when the window hasn't resized.
+            updateReaderViewport(readingAreaSize, force: true)
+        } else { rebuildLayout() }
     }
     
     private var spineWidth: CGFloat { storage.readerConfig.effectiveShowDuoSpine ? 18 : 1 }
@@ -1461,16 +1464,8 @@ public struct ReaderView: View {
     
     private func restorePageFromParagraphIfNeeded() {
         guard !readerPages.isEmpty else { return }
-        let paragraph = targetRestoreParagraph ?? currentParagraphIndex
-        let offset = currentCharacterOffset
-        var selected: Int?
-        for (index, page) in readerPages.enumerated() {
-            for item in page.items where item.index == paragraph {
-                if item.characterOffset <= offset { selected = index }
-            }
-        }
-        let fallback = readerPages.firstIndex { $0.items.contains { $0.index >= paragraph } } ?? 0
-        currentPageIndex = min(selected ?? fallback, readerPages.count - 1)
+        currentPageIndex = ReaderPageLocator.pageIndex(paragraphIndex: targetRestoreParagraph ?? currentParagraphIndex,
+                                                       characterOffset: currentCharacterOffset, pages: readerPages)
         currentSpreadIndex = currentPageIndex / 2
     }
 

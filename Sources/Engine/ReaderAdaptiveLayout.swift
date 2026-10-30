@@ -35,6 +35,21 @@ public struct ReaderTextAnchor: Equatable {
     }
 }
 
+public enum ReaderPageLocator {
+    public static func pageIndex(paragraphIndex: Int, characterOffset: Int, pages: [ReaderPage]) -> Int {
+        guard !pages.isEmpty else { return 0 }
+        // A title-only opening page must remain visible when opening a chapter at its start.
+        if paragraphIndex == 0 && characterOffset == 0 && pages[0].title != nil { return 0 }
+        var selected: Int?
+        for (index, page) in pages.enumerated() {
+            for item in page.items where item.index == paragraphIndex && item.characterOffset <= characterOffset {
+                selected = index
+            }
+        }
+        return selected ?? pages.firstIndex { $0.items.contains { $0.index >= paragraphIndex } } ?? (pages.count - 1)
+    }
+}
+
 /// Ignore callbacks from the old layout until the same chapter has been positioned in the new one.
 public struct ReaderLayoutRestoration {
     public private(set) var token = UUID()

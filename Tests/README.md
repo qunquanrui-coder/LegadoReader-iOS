@@ -22,3 +22,17 @@ Device acceptance still required for the reported books: compare the exact same 
 chapter ending and following chapter, test cached reopening, retry a failed later page, and verify
 foreground/background TTS advances through the complete chapter. Fixture tests do not prove that
 every third-party source provides complete text or usable pagination rules.
+
+
+## Duo layout regressions (v3.5.0)
+
+CI requires Xcode 27.1 with iOS SDK 27.1+ and runs the full suite on an iPhone Duo
+simulator and an ordinary iPhone. It does not substitute another device for Duo.
+
+ReaderAdaptiveLayoutTests cover narrow-window fallback and identity-bound restoration.
+ReaderPaginationTests verify exact text preservation, grapheme boundaries, font/width effects,
+and TextKit parity with UITextView. ReaderPageRenderingTests host the real SwiftUI page
+and check every text view stays inside its page without hidden scrolling.
+
+Physical folding, system split-view placement, asymmetric system bars, and headset behavior
+still need device acceptance. These unit tests do not simulate hinge gestures.

@@ -64,6 +64,41 @@ final class ReaderPaginationTests: XCTestCase {
     }
 
     @MainActor
+    func testFractionalColumnWidthsKeepFittingTextWithoutRoundingItOutOfThePage() {
+        let style = ReaderPageStyle(config: config(fontSize: 19, design: .system, spacing: 4))
+        // An unwrapped line with a fractional glyph width must stay one page when the
+        // content width is exactly its measured width (rounding up used to reject it).
+        let paragraph = "Fractional widths: iii WWW 123."
+        let attributed = style.attributedBody(paragraph)
+        let rendered = UITextView(frame: CGRect(x: 0, y: 0, width: 1000, height: 100))
+        rendered.isScrollEnabled = false
+        rendered.textContainerInset = .zero
+        rendered.textContainer.lineFragmentPadding = 0
+        rendered.attributedText = attributed
+        rendered.layoutManager.ensureLayout(for: rendered.textContainer)
+        let renderedWidth = rendered.layoutManager.usedRect(for: rendered.textContainer).width
+        let measured = style.measuredSize(of: attributed, width: 1000)
+        XCTAssertGreaterThan(renderedWidth, 0)
+        XCTAssertEqual(measured.width, renderedWidth, accuracy: 0.001)
+        let viewport = CGSize(width: renderedWidth + 0.01 + 2 * style.horizontalInset,
+                              height: measured.height + 2 * style.verticalInset + 1)
+        let pages = ReaderPaginator.paginate(paragraphs: [paragraph], chapterTitle: "",
+                                             style: style, viewport: viewport)
+        assertComplete([paragraph], pages: pages, style: style, viewport: viewport)
+        XCTAssertEqual(pages.count, 1)
+        XCTAssertEqual(pages.first?.items.first?.text, paragraph)
+
+        let longParagraph = String(repeating: "Fractional Duo columns should fill naturally. 中文也要完整。", count: 35)
+        let widths: [CGFloat] = [333.5, 444.5]
+        for width in widths {
+            let fractionalViewport = CGSize(width: width, height: 420)
+            let splitPages = ReaderPaginator.paginate(paragraphs: [longParagraph], chapterTitle: "",
+                                                      style: style, viewport: fractionalViewport)
+            assertComplete([longParagraph], pages: splitPages, style: style, viewport: fractionalViewport)
+        }
+    }
+
+    @MainActor
     func testLongParagraphSplitsOnGraphemeBoundariesWithContinuousUTF16Offsets() {
         let paragraph = String(repeating: "家人👨‍👩‍👧‍👦，旗帜🇨🇳，组合字e\u{301}与表情👩🏽‍💻。", count: 45)
         let style = ReaderPageStyle(config: config(fontSize: 26, design: .rounded, spacing: 14))

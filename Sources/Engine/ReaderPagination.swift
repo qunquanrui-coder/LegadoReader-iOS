@@ -92,7 +92,9 @@ public struct ReaderPageStyle {
         manager.ensureLayout(for: container)
         let used = manager.usedRect(for: container)
         let extra = manager.extraLineFragmentUsedRect
-        return CGSize(width: ceil(max(used.maxX, extra.maxX)),
+        // Column widths can be fractional after splitting the Duo window. Rounding
+        // a fitting line up would incorrectly reject it against the original width.
+        return CGSize(width: max(used.maxX, extra.maxX),
                       height: ceil(max(used.maxY, extra.maxY)))
     }
 

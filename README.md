@@ -4,9 +4,18 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
-![Release](https://img.shields.io/badge/Release-v3.4.3-brightgreen)
+![Release](https://img.shields.io/badge/Release-v3.5.0-brightgreen)
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 纯净小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（内置 20 个精选书源，支持 HTML/CSS 与部分 JavaScript 值处理；JSONPath、JavaScript 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
+
+## v3.5.0 Duo 自适应阅读
+
+- 使用 Xcode 27.1 / iOS 27.1 SDK 构建；CI 校验实际 SDK，在 Duo 和普通 iPhone 模拟器分别运行测试。
+- 以窗口的安全阅读区域、字号和每栏最小可读宽度决定单双页；手动选择双页也不会强迫窄窗口显示两栏。
+- 窗口改变或目录侧栏开关时按章节、段落与段内偏移重新定位，恢复期间阻止旧界面回写进度。
+- 分页和绘制共用 TextKit 字体、边距与段间距；超长段落跨页时保留全部字符，支持组合 emoji；窗口过小时使用滚动阅读。
+- 目录侧栏约占三成宽度，书脊装饰默认关闭，书架列数随窗口宽度调整。
+- 覆盖安装保留现有数据。模拟器测试不替代 Duo 真机的连续开合、系统分屏和耳机听书验收。
 
 ## v3.4.3 最终稳定性收尾
 
@@ -28,34 +37,36 @@
 
 ---
 
-## 📦 最新版本下载 (`v3.4.3` 最终稳定性收尾版)
+## 📦 最新版本下载 (`v3.5.0` Duo 自适应阅读版)
 
-直接前往 [**GitHub Releases (v3.4.3)**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.4.3) 或点击下方直链下载：
+前往 [GitHub Releases v3.5.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.5.0) 下载：
 
-| 版本类型 | 适用设备 | 安装包直链 | 核心特性差异 |
-| :--- | :--- | :--- | :--- |
-| 📱 **iPhone 标准通用版** | 所有常规单屏 iPhone (`iOS 16.0+`) | [**`LegadoReader-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.4.3/LegadoReader-unsigned.ipa) | 桌面名称 **`风读小说`**，针对单手竖屏握持优化，默认全屏沉浸模式 |
-| 📖 **iPhone Duo 折叠双屏专享版** | **iPhone Duo**（5.4" 外屏 + 7.6" 书本式折叠内屏）及宽屏设备 | [**`LegadoReader-iPhoneDuo-unsigned.ipa`**](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.4.3/LegadoReader-iPhoneDuo-unsigned.ipa) | 桌面名称 **`风读小说 Duo`**，支持内外屏 0 黑边动态窗口切换、**展开 7.6" 内屏自动双页书本对开（带中轴 3D 书脊折痕光影）**、**左屏常驻目录+右屏阅读分屏模式**、内外屏自适应 3 列/5 列书架 |
+| 安装包 | 适用场景 |
+| :--- | :--- |
+| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.5.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
+| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.5.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
+
 
 ---
 
 ## ✨ 核心功能全景
 
-### 1. 📖 沉浸式排版与 CoreText 像素级测量分页
+### 1. 📖 沉浸式排版与 TextKit 分页
 - **6 款东方美学背景主题**：`羊皮卷`、`宣纸白`、`竹林绿`、`樱花粉`、`暮光灰`、`曜石黑`。
 - **3 种字体排版与自由字号行距**：支持 `书宋衬线`、`系统黑体`、`温润圆体`，字号（`14pt ~ 30pt`）与行距（`4pt ~ 20pt`）实时无级调节。
 - **3 种翻页模式**：
   - `上下滚动`：丝滑长卷阅读，段落级可视锚点实时追踪。
-  - `左右翻页`：基于 `GeometryReader` 真实可视尺寸 + `NSString.boundingRect` (CoreText) 像素级测量每一段高度，每一页严丝合缝贴合屏幕。
+  - `左右翻页`：基于安全阅读区域与共享 TextKit 字体测量，超长段落按完整字符跨页。
   - `Duo 双页书本`：左右双页对开（左页 $2k+1$ + 中轴书脊 + 右页 $2k+2$），翻一次翻两页。
 - **智能段落重排与文本净化**：
   - 自动识别 HTML `<br>`、`</p>`、`&nbsp;`、双全角空格 `\u{3000}\u{3000}`，并对无换行粘连长章节按句末标点与对话引号智能分段，每段自动首行缩进两字符。
   - 支持 **原文 / 繁转简 / 简转繁** 实时转换，支持自定义去广告净化词条。
 
-### 2. 📱 iPhone Duo 折叠双屏深度适配
-- **5.4" 外屏 & 7.6" 折叠内屏满血无黑边**：启用 `UIRequiresFullScreen = false` 与多场景 `UIApplicationSceneManifest`，合上外屏单手精华阅读、展开内屏瞬间切换为宽幅视野，0 兼容黑边、不断流不丢进度。
-- **精装实体书双页对开**：展开内屏自动切换为左右双页书本排版，正中央对齐物理钛合金铰链渲染仿真 **3D 书脊凹槽光影**，支持左右滑动或点击左右侧边缘一次翻过两页。
-- **左屏常驻目录 + 右屏沉浸阅读**：展开内屏时，顶部导航栏提供 **「左屏目录 / 双页」** 一键切换按钮，支持左半屏固定章节目录抽屉、右半屏独立阅读。
+### 2. 📱 Duo 窗口适配
+- 按当前窗口可用宽高选择单页或双页，支持外屏、内屏和系统多任务窗口。
+- 尺寸改变时恢复同一章节的阅读段落；双页内用段落和字符偏移定位页面。
+- 目录侧栏可收起；书脊装饰可选。界面前景遵循系统安全区域，背景可延伸到边缘。
+- 使用 iOS 27.1 SDK 构建，并检查 IPA 中实际记录的 SDK；不以版本名称代替 SDK 验证。
 
 ### 3. 🎧 真人情感神经网络语音听书 & 锁屏后台无损续航
 - **5 位微软 Edge Neural 真人情感主播**：
@@ -94,7 +105,7 @@
 ```text
 LegadoReader-iOS/
 ├── .github/workflows/build.yml          # GitHub Actions 云端自动构建双版本 IPA 工作流
-├── project.yml                          # XcodeGen 工程配置文件 (v3.4.3)
+├── project.yml                          # XcodeGen 工程配置文件 (v3.5.0)
 ├── Resources/
 │   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
 │   ├── default_sources.json             # 内置 20 个实测高速纯净 Legado 书源
