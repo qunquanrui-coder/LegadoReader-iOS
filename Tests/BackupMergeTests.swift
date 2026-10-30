@@ -176,6 +176,58 @@ final class BackupMergeTests: XCTestCase {
         XCTAssertEqual(decoded.bookshelf[0].currentCharacterOffset, 137)
         XCTAssertEqual(decoded.positionMap[key(local)], [4, 3, 137])
     }
+
+    func testNewerBackupKeepsCanonicalLocalShelfBookId() {
+        let now = Date()
+        let local = Book(id: "local-canonical-id", title: "同书不同源", author: "作者",
+                         sourceUrl: "https://a.invalid", sourceName: "A",
+                         bookUrl: "https://a.invalid/book/1",
+                         currentChapterIndex: 10, lastReadTime: now.addingTimeInterval(-3600))
+        let backup = Book(id: "backup-other-id", title: "同书不同源", author: "作者",
+                          sourceUrl: "https://b.invalid", sourceName: "B",
+                          bookUrl: "https://b.invalid/book/9",
+                          currentChapterIndex: 55, currentParagraphIndex: 3, lastReadTime: now)
+        let result = StorageManager.mergeBackupState(
+            localBooks: [local], localPositions: [:], localTitles: [:],
+            backupBooks: [backup], backupPositions: [:], backupTitles: [:]
+        )
+        XCTAssertEqual(result.bookshelf.count, 1)
+        XCTAssertEqual(result.bookshelf[0].id, "local-canonical-id")
+        XCTAssertEqual(result.bookshelf[0].currentChapterIndex, 55)
+        XCTAssertEqual(result.bookshelf[0].currentParagraphIndex, 3)
+    }
+
+    func testMergeReaderConfigPreservesLocalTypographyAndCustomPurifyRules() {
+        var local = ReaderConfig.default
+        local.theme = .pureBlack
+        local.setTypography(ReaderTypography(fontSize: 18, lineSpacing: 7), for: .compact)
+        local.setTypography(ReaderTypography(fontSize: 24, lineSpacing: 14), for: .wide)
+        local.effectiveTapMode = .leftHanded
+        local.purifyRules = ReaderConfig.defaultPurifyRules + [PurifyRule(name: "本地规则", pattern: "广告A", isRegex: false)]
+
+        var olderBackup = ReaderConfig.default
+        olderBackup.theme = .parchment
+        olderBackup.purifyRules = ReaderConfig.defaultPurifyRules + [PurifyRule(name: "备份规则", pattern: "广告B", isRegex: false)]
+
+        let merged = StorageManager.mergeReaderConfig(local: local, backup: olderBackup, preferLocal: true)
+        XCTAssertEqual(merged.theme, .pureBlack)
+        XCTAssertEqual(merged.typography(for: .compact), ReaderTypography(fontSize: 18, lineSpacing: 7))
+        XCTAssertEqual(merged.typography(for: .wide), ReaderTypography(fontSize: 24, lineSpacing: 14))
+        XCTAssertEqual(merged.effectiveTapMode, .leftHanded)
+        XCTAssertTrue(merged.effectivePurifyRules.contains(where: { $0.pattern == "广告A" }))
+        XCTAssertTrue(merged.effectivePurifyRules.contains(where: { $0.pattern == "广告B" }))
+    }
+
+    func testResolveLastReadBookIdPrefersNewerReadingSession() {
+        let older = book(title: "旧书", chapter: 80, readAt: Date(timeIntervalSince1970: 100))
+        let newer = book(title: "新书", chapter: 12, readAt: Date(timeIntervalSince1970: 500))
+        let resolved = StorageManager.resolveLastReadBookId(
+            localLastReadId: newer.id,
+            backupLastReadId: older.id,
+            mergedShelf: [older, newer]
+        )
+        XCTAssertEqual(resolved, newer.id)
+    }
 }
 
 final class TocChapterResolutionTests: XCTestCase {

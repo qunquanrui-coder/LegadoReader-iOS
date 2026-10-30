@@ -53,10 +53,10 @@ public class StorageManager: ObservableObject {
         ChapterContentCache(directory: cacheDirectory).quarantineLegacyCaches(at: legacyDirectories)
     }
     
-    /// Total size of all cached chapters in bytes
-    public func chapterCacheSizeBytes() -> Int64 {
+    /// Calculates directory size in bytes without touching actor-isolated state so callers can run it off the main thread.
+    public static func directorySizeBytes(at directoryURL: URL) -> Int64 {
         var total: Int64 = 0
-        if let enumerator = fileManager.enumerator(at: cacheDirectoryURL, includingPropertiesForKeys: [.fileSizeKey]) {
+        if let enumerator = FileManager.default.enumerator(at: directoryURL, includingPropertiesForKeys: [.fileSizeKey]) {
             for case let fileURL as URL in enumerator {
                 if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
                     total += Int64(size)
@@ -64,6 +64,11 @@ public class StorageManager: ObservableObject {
             }
         }
         return total
+    }
+
+    /// Total size of all cached chapters in bytes
+    public func chapterCacheSizeBytes() -> Int64 {
+        Self.directorySizeBytes(at: cacheDirectoryURL)
     }
     
     /// Removes every cached chapter (bookshelf & reading progress are kept)
@@ -267,13 +272,25 @@ public class StorageManager: ObservableObject {
     }
 
     public func removeBookFromShelf(_ book: Book) {
-        let removedIds = bookshelf.filter { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }.map { $0.id }
+        let removedBooks = bookshelf.filter { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }
+        let removedIds = removedBooks.map { $0.id }
+        let removedKeys = Set((removedBooks + [book]).map { Self.bookKey(title: $0.title, author: $0.author) })
         bookshelf.removeAll(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) })
         if let last = lastReadBookId, removedIds.contains(last) || last == book.id {
             lastReadBookId = bookshelf.max(by: { $0.lastReadTime < $1.lastReadTime })?.id
             UserDefaults.standard.set(lastReadBookId, forKey: lastReadBookIdKey)
         }
         saveBookshelf()
+        let posStore = ReadingPositionStore(key: positionMapKey)
+        var titleMap = (UserDefaults.standard.dictionary(forKey: chapterTitleMapKey) as? [String: String]) ?? [:]
+        var relocationMap = (UserDefaults.standard.dictionary(forKey: pendingRelocationKey) as? [String: String]) ?? [:]
+        for key in removedKeys {
+            posStore.remove(for: key)
+            titleMap.removeValue(forKey: key)
+            relocationMap.removeValue(forKey: key)
+        }
+        UserDefaults.standard.set(titleMap, forKey: chapterTitleMapKey)
+        UserDefaults.standard.set(relocationMap, forKey: pendingRelocationKey)
         for id in Set(removedIds + [book.id]) {
             clearChapterCache(bookId: id)
         }
@@ -402,6 +419,10 @@ public class StorageManager: ObservableObject {
         ChapterContentCache(directory: cacheDirectory).read(bookId: bookId, chapterIndex: chapterIndex,
                                                            chapterURL: chapterURL, sourceURL: sourceURL) != nil
     }
+
+    public func cachedChapterIndices(bookId: String, sourceURL: String? = nil) -> Set<Int> {
+        ChapterContentCache(directory: cacheDirectory).cachedChapterIndices(bookId: bookId, sourceURL: sourceURL)
+    }
     
     // MARK: - TOC Persistence (offline catalogue)
     /// Persisted chapter list for a book — without it even fully cached chapters cannot be opened offline.
@@ -500,7 +521,9 @@ public class StorageManager: ObservableObject {
                 $0.id == incoming.id || ($0.title == incoming.title && $0.author == incoming.author)
             }) {
                 if isNewerReadingState(incoming, than: merged[index]) {
-                    merged[index] = incoming
+                    var updated = incoming
+                    updated.id = merged[index].id
+                    merged[index] = updated
                 }
             } else {
                 merged.append(incoming)
@@ -533,6 +556,54 @@ public class StorageManager: ObservableObject {
         return (merged, positions, titles)
     }
 
+    /// Preserves local window-specific typography, tap handedness and custom purify rules when
+    /// restoring an older backup, while adopting the backup's preferences on a fresh install.
+    static func mergeReaderConfig(local: ReaderConfig, backup: ReaderConfig, preferLocal: Bool = false) -> ReaderConfig {
+        let useLocalBase = preferLocal && local != .default
+        var merged = useLocalBase ? local : backup
+        let fallback = useLocalBase ? backup : local
+        if merged.compactTypography == nil { merged.compactTypography = fallback.compactTypography }
+        if merged.wideTypography == nil { merged.wideTypography = fallback.wideTypography }
+        if merged.tapMode == nil { merged.tapMode = fallback.tapMode }
+        if merged.chineseConversion == nil { merged.chineseConversion = fallback.chineseConversion }
+        if merged.showDuoSpine == nil { merged.showDuoSpine = fallback.showDuoSpine }
+
+        var rules = merged.effectivePurifyRules
+        var seenPatterns = Set(rules.map { "\($0.pattern)_\($0.isRegex)" })
+        for rule in fallback.effectivePurifyRules where !seenPatterns.contains("\(rule.pattern)_\(rule.isRegex)") {
+            seenPatterns.insert("\(rule.pattern)_\(rule.isRegex)")
+            rules.append(rule)
+        }
+        merged.purifyRules = rules
+        return merged
+    }
+
+    /// Selects the most recently read book ID between local and backup so an older backup
+    /// does not point the top "最近阅读" card at a stale book.
+    static func resolveLastReadBookId(
+        localLastReadId: String?,
+        backupLastReadId: String?,
+        mergedShelf: [Book],
+        backupBooks: [Book] = []
+    ) -> String? {
+        let localBook = localLastReadId.flatMap { id in
+            mergedShelf.first(where: { $0.id == id })
+        }
+        let backupBook: Book? = backupLastReadId.flatMap { id in
+            if let direct = mergedShelf.first(where: { $0.id == id }) { return direct }
+            if let orig = backupBooks.first(where: { $0.id == id }) {
+                return mergedShelf.first(where: { $0.title == orig.title && $0.author == orig.author })
+            }
+            return nil
+        }
+        if let l = localBook, let b = backupBook {
+            return isNewerReadingState(b, than: l) ? b.id : l.id
+        }
+        if let b = backupBook { return b.id }
+        if let l = localBook { return l.id }
+        return mergedShelf.max(by: { isNewerReadingState($1, than: $0) })?.id
+    }
+
     public func restoreFromBackupJSON(_ jsonString: String) throws -> (booksCount: Int, sourcesCount: Int) {
         guard let data = jsonString.data(using: .utf8) else {
             throw NSError(domain: "LegadoReader", code: -10, userInfo: [NSLocalizedDescriptionKey: "备份文本编码无效"])
@@ -540,8 +611,16 @@ public class StorageManager: ObservableObject {
         let decoder = JSONDecoder()
         let payload = try decoder.decode(FullBackupPayload.self, from: data)
         
-        // 1. Restore reader config
-        self.readerConfig = payload.readerConfig
+        let localNewest = bookshelf.max(by: { Self.isNewerReadingState($1, than: $0) })
+        let backupNewest = payload.bookshelf.max(by: { Self.isNewerReadingState($1, than: $0) })
+        let localIsNewerSession: Bool = {
+            guard let l = localNewest, let b = backupNewest else { return localNewest != nil }
+            return Self.isNewerReadingState(l, than: b)
+        }()
+
+        // 1. Merge reader config without wiping newer local typography or purify rules
+        self.readerConfig = Self.mergeReaderConfig(local: readerConfig, backup: payload.readerConfig,
+                                                   preferLocal: localIsNewerSession)
         saveConfig()
         
         // 2. Merge the shelf and rebuild the position maps from the merged result in one go.
@@ -556,15 +635,27 @@ public class StorageManager: ObservableObject {
             backupPositions: payload.positionMap,
             backupTitles: payload.chapterTitleMap
         )
-        self.bookshelf = mergedState.bookshelf
+        let resolvedLastId = Self.resolveLastReadBookId(
+            localLastReadId: lastReadBookId,
+            backupLastReadId: payload.lastReadBookId,
+            mergedShelf: mergedState.bookshelf,
+            backupBooks: payload.bookshelf
+        )
+        self.lastReadBookId = resolvedLastId
+        UserDefaults.standard.set(resolvedLastId, forKey: lastReadBookIdKey)
+
+        var sortedShelf = mergedState.bookshelf
+        if sortedShelf.count > 1 {
+            sortedShelf.sort { a, b in
+                if a.id == resolvedLastId { return true }
+                if b.id == resolvedLastId { return false }
+                return Self.isNewerReadingState(a, than: b)
+            }
+        }
+        self.bookshelf = sortedShelf
         saveBookshelf()
         UserDefaults.standard.set(mergedState.positions, forKey: positionMapKey)
         UserDefaults.standard.set(mergedState.titles, forKey: chapterTitleMapKey)
-        
-        if let lastId = payload.lastReadBookId, mergedState.bookshelf.contains(where: { $0.id == lastId }) {
-            self.lastReadBookId = lastId
-            UserDefaults.standard.set(lastId, forKey: lastReadBookIdKey)
-        }
         
         // 3. Merge book sources
         var existingUrls = Set(bookSources.map { $0.bookSourceUrl })

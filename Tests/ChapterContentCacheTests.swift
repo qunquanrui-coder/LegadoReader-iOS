@@ -61,4 +61,20 @@ final class ChapterContentCacheTests: XCTestCase {
         cache.quarantineLegacyCaches(at: [legacy])
         XCTAssertEqual(try String(contentsOf: saved, encoding: .utf8), original)
     }
+
+    func testCachedChapterIndicesReturnsVerifiedSetOnly() throws {
+        let directory = try temporaryDirectory()
+        let cache = ChapterContentCache(directory: directory)
+        XCTAssertTrue(cache.save(content(), bookId: "book", chapterIndex: 2))
+        XCTAssertTrue(cache.save(content(), bookId: "book", chapterIndex: 7))
+        let bookDir = directory.appendingPathComponent("book")
+        try "无效旧文本".write(to: bookDir.appendingPathComponent("4.txt"), atomically: true, encoding: .utf8)
+        let badRecord: [String: Any] = ["version": 1, "complete": false, "chapterURL": "u",
+                                        "sourceURL": content().sourceURL, "pageCount": 1, "text": "半章"]
+        try JSONSerialization.data(withJSONObject: badRecord).write(to: bookDir.appendingPathComponent("5.json"))
+
+        XCTAssertEqual(cache.cachedChapterIndices(bookId: "book"), Set([2, 7]))
+        XCTAssertEqual(cache.cachedChapterIndices(bookId: "book", sourceURL: content().sourceURL), Set([2, 7]))
+        XCTAssertTrue(cache.cachedChapterIndices(bookId: "book", sourceURL: "https://other.invalid").isEmpty)
+    }
 }

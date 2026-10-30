@@ -9,6 +9,7 @@ public struct ChapterListView: View {
     
     @State private var searchKeyword = ""
     @State private var isReversed = false
+    @State private var cachedIndices: Set<Int> = []
     
     public init(
         bookId: String? = nil,
@@ -114,8 +115,7 @@ public struct ChapterListView: View {
                                         
                                         Spacer()
                                         
-                                        if let bid = bookId,
-                                           StorageManager.shared.isChapterCached(bookId: bid, chapterIndex: ch.index) {
+                                        if cachedIndices.contains(ch.index) {
                                             Text("已缓存")
                                                 .font(.system(size: 10, weight: .medium))
                                                 .padding(.horizontal, 6)
@@ -149,6 +149,14 @@ public struct ChapterListView: View {
                         }
                     }
                     .scrollDismissesKeyboard(.immediately)
+                    .task(id: bookId) {
+                        guard let bid = bookId else { return }
+                        let cacheDir = StorageManager.shared.cacheDirectoryURL
+                        let indices = await Task.detached(priority: .userInitiated) {
+                            ChapterContentCache(directory: cacheDir).cachedChapterIndices(bookId: bid)
+                        }.value
+                        cachedIndices = indices
+                    }
                     .onAppear {
                         // Multi-stage scroll guarantees exact centering even for 1,000+ chapters during sheet animation
                         scrollToCurrentChapter(proxy: proxy, animated: false)

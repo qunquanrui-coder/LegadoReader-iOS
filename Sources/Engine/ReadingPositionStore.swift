@@ -47,4 +47,10 @@ struct ReadingPositionStore {
         map[bookKey] = position.values
         defaults.set(map, forKey: key)
     }
+
+    func remove(for bookKey: String) {
+        guard var map = defaults.dictionary(forKey: key) as? [String: [Int]] else { return }
+        map.removeValue(forKey: bookKey)
+        defaults.set(map, forKey: key)
+    }
 }

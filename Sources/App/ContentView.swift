@@ -216,9 +216,15 @@ struct SettingsView: View {
     }
     
     private func calculateCacheSize() {
-        let total = storage.chapterCacheSizeBytes()
-        let mb = Double(total) / (1024 * 1024)
-        cacheSizeStr = String(format: "%.2f MB", mb)
+        let cacheDir = storage.cacheDirectoryURL
+        Task.detached(priority: .utility) {
+            let total = StorageManager.directorySizeBytes(at: cacheDir)
+            let mb = Double(total) / (1024 * 1024)
+            let formatted = String(format: "%.2f MB", mb)
+            await MainActor.run {
+                self.cacheSizeStr = formatted
+            }
+        }
     }
     
     private func clearCache() {

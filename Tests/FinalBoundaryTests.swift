@@ -68,6 +68,39 @@ final class CacheIdentityTests: XCTestCase {
         XCTAssertEqual(storage.bookshelf.first?.sourceUrl, "https://b.invalid")
         XCTAssertEqual(storage.bookshelf.first?.bookUrl, "https://b.invalid/book/1")
     }
+
+    func testRemovingBookFromShelfClearsSavedPositionAndTitleRecords() {
+        let storage = StorageManager.shared
+        let originalShelf = storage.bookshelf
+        let originalLastRead = storage.lastReadBookId
+        defer {
+            storage.bookshelf = originalShelf
+            storage.lastReadBookId = originalLastRead
+            storage.saveBookshelf()
+        }
+
+        let testBook = book(sourceUrl: "https://a.invalid", sourceName: "A",
+                            bookUrl: "https://a.invalid/book/cleanup",
+                            title: "删书清理测试_\(UUID().uuidString)", author: "测试作者")
+        _ = storage.addBookToShelf(testBook)
+        storage.updateBookProgress(bookId: testBook.id, bookTitle: testBook.title, bookAuthor: testBook.author,
+                                   chapterIndex: 88, chapterTitle: "第88章 旧进度", totalChapters: 100,
+                                   paragraphIndex: 6, characterOffset: 42)
+        XCTAssertEqual(storage.getSavedReadingPosition(for: testBook).chapterIndex, 88)
+        XCTAssertEqual(storage.savedChapterTitle(for: testBook), "第88章 旧进度")
+
+        storage.removeBookFromShelf(testBook)
+
+        let freshCopy = book(sourceUrl: "https://b.invalid", sourceName: "B",
+                             bookUrl: "https://b.invalid/book/cleanup",
+                             title: testBook.title, author: testBook.author)
+        let posAfterRemove = storage.getSavedReadingPosition(for: freshCopy)
+        XCTAssertEqual(posAfterRemove.chapterIndex, 0)
+        XCTAssertEqual(posAfterRemove.paragraphIndex, 0)
+        XCTAssertEqual(posAfterRemove.characterOffset, 0)
+        XCTAssertNil(storage.savedChapterTitle(for: freshCopy))
+        XCTAssertNil(storage.consumePendingRelocation(for: freshCopy))
+    }
 }
 
 final class LoadTokenSetTests: XCTestCase {

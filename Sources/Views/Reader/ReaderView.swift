@@ -361,6 +361,9 @@ public struct ReaderView: View {
             tocRefreshTask = nil
             prefetchTask?.cancel()
             prefetchTask = nil
+            activeCacheTask?.cancel()
+            activeCacheTask = nil
+            isCachingChapters = false
             // Cancel any pending "start listening on the new chapter" intent: the page is gone.
             pendingListenStart = false
             pendingTTSCarryOver = false

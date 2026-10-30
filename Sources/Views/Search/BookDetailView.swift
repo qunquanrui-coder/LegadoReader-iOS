@@ -9,6 +9,7 @@ public struct BookDetailView: View {
     @State private var isReading = false
     @State private var showChangeSource = false
     @State private var showAllChapters = false
+    @State private var showRemoveAlert = false
     @State private var isCachingFullBook = false
     @State private var fullCacheStatusText: String? = nil
     @State private var cacheTask: Task<Void, Never>? = nil
@@ -23,8 +24,12 @@ public struct BookDetailView: View {
         _book = State(initialValue: book)
     }
     
+    private var shelfBook: Book? {
+        storage.bookshelf.first(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) })
+    }
+
     private var isAddedToShelf: Bool {
-        storage.bookshelf.contains(where: { $0.title == book.title && $0.author == book.author })
+        shelfBook != nil
     }
     
     public var body: some View {
@@ -101,7 +106,7 @@ public struct BookDetailView: View {
                 HStack(spacing: 12) {
                     Button {
                         if isAddedToShelf {
-                            storage.removeBookFromShelf(book)
+                            showRemoveAlert = true
                         } else {
                             addCurrentBookToShelf()
                         }
@@ -326,6 +331,21 @@ public struct BookDetailView: View {
         }
         .onDisappear {
             tocTask?.cancel()
+            if !isReading {
+                cacheTask?.cancel()
+                isCachingFullBook = false
+            }
+        }
+        .alert("从书架移除《\(book.title)》？", isPresented: $showRemoveAlert) {
+            Button("移除并清理缓存", role: .destructive) {
+                cacheTask?.cancel()
+                isCachingFullBook = false
+                fullCacheStatusText = nil
+                storage.removeBookFromShelf(book)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("移除后将同时清理本书已下载的离线章节缓存与阅读位置记录。")
         }
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
@@ -335,9 +355,9 @@ public struct BookDetailView: View {
         }
         .sheet(isPresented: $showAllChapters) {
             ChapterListView(
-                bookId: book.id,
+                bookId: shelfBook?.id ?? book.id,
                 chapters: chapters,
-                currentIndex: book.currentChapterIndex,
+                currentIndex: shelfBook?.currentChapterIndex ?? book.currentChapterIndex,
                 onSelectChapter: { idx in
                     book.currentChapterIndex = idx
                     book.currentParagraphIndex = 0
