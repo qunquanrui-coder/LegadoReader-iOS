@@ -17,6 +17,9 @@ final class ReaderPageRenderingTests: XCTestCase {
                 let controller = UIHostingController(rootView:
                     MeasuredReaderPage(page: page, style: style, size: size, textColor: .black,
                                        highlightedParagraph: nil).ignoresSafeArea())
+                // ReaderView measures the safe reading area before creating a page. This isolated
+                // page host must not subtract the device's safe area for a second time.
+                if #available(iOS 16.4, *) { controller.safeAreaRegions = [] }
                 // SwiftUI creates representable subviews after attachment to a visible window.
                 // A detached hosting view has no rendered UITextViews to inspect.
                 let container = UIViewController()
