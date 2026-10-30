@@ -11,15 +11,28 @@ on:
 jobs:
   build:
     name: Build Unsigned IPAs (iPhone & iPhone Duo)
-    runs-on: macos-15
-    timeout-minutes: 25
+    # GitHub's documented ARM64 image includes Xcode 27.1 and the iPhone Duo runtime.
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
-      - name: Check Xcode Version
-        run: xcodebuild -version
+      - name: Require Xcode 27.1 and the Duo SDK
+        run: |
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcodebuild -version | head -n 1 | grep -E '^Xcode 27\.1([[:space:]]|$)'
+          SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
+          SDK_VERSION="$SDK_VERSION" python3 - <<'PY'
+          import os
+          version = tuple(int(part) for part in os.environ['SDK_VERSION'].split('.'))
+          assert version >= (27, 1), f'iOS 27.1 SDK required, found {version}'
+          print('Duo-capable build SDK:', os.environ['SDK_VERSION'])
+          PY
 
       - name: Install xcodegen if needed
         run: which xcodegen || brew install xcodegen
@@ -27,24 +40,39 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen generate
 
-      - name: Test Chapter Integrity on iOS Simulator
+      - name: Select real Duo and ordinary iPhone simulators
         run: |
-          SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime, devices in d["devices"].items() if "iOS" in runtime for x in devices if x["name"].startswith("iPhone")))')
+          python3 scripts/test_select_ios_simulators.py
+          xcrun simctl list devices available -j | python3 scripts/select_ios_simulators.py
+
+      - name: Test full suite on iPhone Duo
+        run: |
           xcodebuild test \
             -project LegadoReader.xcodeproj \
             -scheme LegadoReader \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -destination "platform=iOS Simulator,id=$DUO_SIMULATOR_ID" \
             -parallel-testing-enabled NO \
             -derivedDataPath ./TestDerivedData \
-            -resultBundlePath ./TestResults.xcresult \
+            -resultBundlePath ./TestResults-Duo.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test full suite on ordinary iPhone
+        run: |
+          xcodebuild test \
+            -project LegadoReader.xcodeproj \
+            -scheme LegadoReader \
+            -destination "platform=iOS Simulator,id=$STANDARD_SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
+            -derivedDataPath ./TestDerivedData \
+            -resultBundlePath ./TestResults-iPhone.xcresult \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload Test Results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
-          name: chapter-integrity-test-results
-          path: TestResults.xcresult
+          name: ios-regression-test-results
+          path: TestResults-*.xcresult
           retention-days: 7
 
       - name: Build Application with xcodebuild
@@ -67,6 +95,14 @@ jobs:
             exit 1
           fi
           echo "Found app at: $APP_PATH"
+          APP_PATH="$APP_PATH" python3 - <<'PY'
+          import os, pathlib, plistlib, re
+          info = plistlib.loads((pathlib.Path(os.environ['APP_PATH']) / 'Info.plist').read_bytes())
+          sdk = info.get('DTSDKName', '')
+          match = re.fullmatch(r'iphoneos(\d+)\.(\d+)(?:\.\d+)?', sdk)
+          assert match and tuple(map(int, match.groups())) >= (27, 1), f'IPA built with wrong SDK: {sdk}'
+          print('Packaged build SDK:', sdk)
+          PY
 
           # 1. Package Standard iPhone Edition (LegadoReader-unsigned.ipa)
           rm -rf Payload
@@ -89,7 +125,7 @@ jobs:
           ls -lh LegadoReader-iPhoneDuo-unsigned.ipa
 
       - name: Upload IPA Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: LegadoReader-unsigned-ipa
           path: |
@@ -107,10 +143,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Download packaged IPAs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.2
         with:
           name: LegadoReader-unsigned-ipa
           path: release
@@ -120,7 +156,7 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
-          import os, pathlib, plistlib, zipfile
+          import os, pathlib, plistlib, re, zipfile
           version = os.environ['TAG_NAME'].lstrip('v')
           expected = {'LegadoReader-unsigned.ipa': False, 'LegadoReader-iPhoneDuo-unsigned.ipa': True}
           for name, duo in expected.items():
@@ -131,7 +167,10 @@ jobs:
                   info = plistlib.loads(archive.read('Payload/LegadoReader.app/Info.plist'))
                   assert info['CFBundleShortVersionString'] == version, (name, info['CFBundleShortVersionString'])
                   assert info['IS_IPHONE_DUO_EDITION'] == duo, (name, info['IS_IPHONE_DUO_EDITION'])
-                  print(name, info['CFBundleShortVersionString'], info['CFBundleVersion'])
+                  sdk = info.get('DTSDKName', '')
+                  match = re.fullmatch(r'iphoneos(\d+)\.(\d+)(?:\.\d+)?', sdk)
+                  assert match and tuple(map(int, match.groups())) >= (27, 1), (name, sdk)
+                  print(name, info['CFBundleShortVersionString'], info['CFBundleVersion'], sdk)
           PY
 
       - name: Publish release with both IPAs

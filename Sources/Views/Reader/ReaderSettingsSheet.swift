@@ -61,9 +61,9 @@ public struct ReaderSettingsSheet: View {
                             Image(systemName: "rectangle.split.2x1.fill")
                                 .foregroundColor(.indigo)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("iPhone Duo 展开内屏自动双页对开")
+                                Text("空间充足时自动双页阅读")
                                     .font(.system(size: 13, weight: .semibold))
-                                Text("合上 5.4\" 外屏单页阅读，展开 7.6\" 内屏自动切换实体书左右双页")
+                                Text("根据当前窗口宽度切换；折叠或缩小窗口时使用单页")
                                     .font(.system(size: 10))
                                     .foregroundColor(.secondary)
                             }
@@ -74,6 +74,26 @@ public struct ReaderSettingsSheet: View {
                     .background(Color(.secondarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     
+                    Toggle(isOn: Binding(
+                        get: { storage.readerConfig.effectiveShowDuoSpine },
+                        set: { val in
+                            storage.readerConfig.effectiveShowDuoSpine = val
+                            storage.saveConfig()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("双页书脊装饰")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("默认使用简洁分隔；开启后显示仿书脊阴影")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .tint(.indigo)
+                    .padding(10)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
                     HStack(spacing: 10) {
                         ForEach(ChineseConversionMode.allCases, id: \.self) { conv in
                             let isSelected = storage.readerConfig.effectiveChineseConversion == conv

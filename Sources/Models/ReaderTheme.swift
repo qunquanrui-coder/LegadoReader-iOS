@@ -93,6 +93,7 @@ public struct ReaderConfig: Codable, Equatable {
     public var chineseConversion: ChineseConversionMode?
     public var customPurifyRules: [String]?
     public var autoDuoBookSpread: Bool?
+    public var showDuoSpine: Bool? = nil
     
     public static var isDuoEditionBuild: Bool {
         (Bundle.main.object(forInfoDictionaryKey: "IS_IPHONE_DUO_EDITION") as? Bool) ?? false
@@ -108,6 +109,11 @@ public struct ReaderConfig: Codable, Equatable {
         set { autoDuoBookSpread = newValue }
     }
     
+    public var effectiveShowDuoSpine: Bool {
+        get { showDuoSpine ?? false }
+        set { showDuoSpine = newValue }
+    }
+
     public var effectiveChineseConversion: ChineseConversionMode {
         get { chineseConversion ?? .original }
         set { chineseConversion = newValue }

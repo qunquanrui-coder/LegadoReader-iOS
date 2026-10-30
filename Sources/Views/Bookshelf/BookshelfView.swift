@@ -1,27 +1,17 @@
 import SwiftUI
 
 public struct BookshelfView: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject var storage = StorageManager.shared
     @ObservedObject var speech = SpeechSynthesizerManager.shared
     @State private var selectedBook: Book?
     @State private var showingSearch = false
     @State private var isGridView = true
     
+    // Let the current window choose the column count, including the outer screen and multitasking.
     private var adaptiveColumns: [GridItem] {
-        if horizontalSizeClass == .regular {
-            // iPhone Duo 7.6" Unfolded Inner Display: 5-column spacious book gallery
-            return [GridItem(.adaptive(minimum: 112), spacing: 20)]
-        } else {
-            // iPhone Duo 5.4" Outer Display / Standard iPhone: 3-column grid
-            return [
-                GridItem(.flexible(), spacing: 18),
-                GridItem(.flexible(), spacing: 18),
-                GridItem(.flexible(), spacing: 18)
-            ]
-        }
+        [GridItem(.adaptive(minimum: 112), spacing: 16)]
     }
-    
+
     public init() {}
     
     private func openBook(_ book: Book) {

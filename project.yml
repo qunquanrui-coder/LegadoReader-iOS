@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.qunquanrui
   deploymentTarget:
     iOS: "16.0"
-  xcodeVersion: "15.0"
+  xcodeVersion: "27.1"
 packages:
   SwiftSoup:
     url: https://github.com/scinfu/SwiftSoup.git
@@ -31,8 +31,8 @@ targets:
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
         ENABLE_BITCODE: NO
-        MARKETING_VERSION: "3.4.3"
-        CURRENT_PROJECT_VERSION: "38"
+        MARKETING_VERSION: "3.5.0"
+        CURRENT_PROJECT_VERSION: "39"
   LegadoReaderTests:
     type: bundle.unit-test
     platform: iOS
