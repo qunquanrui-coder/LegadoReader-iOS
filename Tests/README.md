@@ -36,3 +36,13 @@ and check every text view stays inside its page without hidden scrolling.
 
 Physical folding, system split-view placement, asymmetric system bars, and headset behavior
 still need device acceptance. These unit tests do not simulate hinge gestures.
+
+## Page turn feedback (v3.5.1)
+
+ReaderPagerTests exercise the native pager's directional animation requests, completed and
+cancelled swipes, rapid requests, layout identity replacement, bounds and unanimated restoration.
+The real pager is also mounted in a window to check that an animated turn has intermediate
+visible movement and that its hosted page retains the measured text viewport.
+
+On a device, check left/right taps, dragging then cancelling, several rapid taps, chapter
+boundaries, and changing the Duo window during a turn. The center tap still opens the menu.

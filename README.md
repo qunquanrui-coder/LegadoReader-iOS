@@ -4,9 +4,15 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
-![Release](https://img.shields.io/badge/Release-v3.5.0-brightgreen)
+![Release](https://img.shields.io/badge/Release-v3.5.1-brightgreen)
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 纯净小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（内置 20 个精选书源，支持 HTML/CSS 与部分 JavaScript 值处理；JSONPath、JavaScript 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
+
+## v3.5.1 翻页反馈修复
+
+- 单页与 Duo 双页使用原生横向分页，点击翻页也有明确的前后方向动画，滑动时页面跟随手指。
+- 点击中间呼出菜单；快速翻页、取消滑动与重排均有进度保护，系统开启减弱动态效果时不播放滑动动画。
+- 手动跨章节增加进入过渡；听书跳页保留当前朗读段落。
 
 ## v3.5.0 Duo 自适应阅读
 
@@ -37,14 +43,14 @@
 
 ---
 
-## 📦 最新版本下载 (`v3.5.0` Duo 自适应阅读版)
+## 📦 最新版本下载 (`v3.5.1` 翻页反馈修复版)
 
-前往 [GitHub Releases v3.5.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.5.0) 下载：
+前往 [GitHub Releases v3.5.1](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.5.1) 下载：
 
 | 安装包 | 适用场景 |
 | :--- | :--- |
-| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.5.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
-| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.5.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
+| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.5.1/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
+| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.5.1/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
 
 
 ---
@@ -105,7 +111,7 @@
 ```text
 LegadoReader-iOS/
 ├── .github/workflows/build.yml          # GitHub Actions 云端自动构建双版本 IPA 工作流
-├── project.yml                          # XcodeGen 工程配置文件 (v3.5.0)
+├── project.yml                          # XcodeGen 工程配置文件 (v3.5.1)
 ├── Resources/
 │   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
 │   ├── default_sources.json             # 内置 20 个实测高速纯净 Legado 书源

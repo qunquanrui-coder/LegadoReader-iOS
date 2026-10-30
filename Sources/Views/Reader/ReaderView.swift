@@ -16,6 +16,7 @@ final class ProgressSaveThrottle {
 public struct ReaderView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var storage = StorageManager.shared
     @ObservedObject var speech = SpeechSynthesizerManager.shared
 
@@ -26,6 +27,7 @@ public struct ReaderView: View {
     @State private var currentCharacterOffset: Int = 0
     @State private var currentPageIndex: Int = 0
     @State private var currentSpreadIndex: Int = 0
+    @State private var chapterTurnBackward: Bool?
     @State private var showDuoSidebarTOC: Bool = false
     @State private var currentContent: String = ""
     @State private var isLoading = true
@@ -216,13 +218,20 @@ public struct ReaderView: View {
                 .padding(.vertical, 6)
 
                 // Main Reading Area: Vertical Scroll, Horizontal Slide, OR iPhone Duo Dual-Page Book Spread
-                if isLoading {
-                    loadingStateView
-                } else if let error = errorMessage {
-                    errorStateView(error)
-                } else {
-                    readingArea
+                ZStack {
+                    if isLoading {
+                        loadingStateView
+                    } else if let error = errorMessage {
+                        errorStateView(error)
+                    } else {
+                        readingArea
+                            .id(loadedContentChapterURL)
+                            .transition(chapterPageTransition)
+                    }
                 }
+                .clipped()
+                .animation(chapterTurnBackward == nil || reduceMotion ? nil : .easeInOut(duration: 0.28),
+                           value: loadedContentChapterURL)
 
                 // Subtle Bottom Footer
                 HStack {
@@ -588,42 +597,57 @@ public struct ReaderView: View {
     }
 
     private func turnPage(backward: Bool, spread: Bool) {
-        guard !isRestoringPosition else { return }
+        guard !isLoading, !isRestoringPosition else { return }
         if showHUD { withAnimation { showHUD = false }; return }
         let index = spread ? currentSpreadIndex : currentPageIndex
         let count = spread ? (readerPages.count + 1) / 2 : readerPages.count
         if backward && index > 0 {
-            withAnimation { if spread { currentSpreadIndex -= 1 } else { currentPageIndex -= 1 } }
+            if spread { currentSpreadIndex -= 1 } else { currentPageIndex -= 1 }
+            selectPage(spread ? currentSpreadIndex * 2 : currentPageIndex)
         } else if !backward && index + 1 < count {
-            withAnimation { if spread { currentSpreadIndex += 1 } else { currentPageIndex += 1 } }
+            if spread { currentSpreadIndex += 1 } else { currentPageIndex += 1 }
+            selectPage(spread ? currentSpreadIndex * 2 : currentPageIndex)
         } else if backward && currentChapterIndex > 0 {
-            switchChapter(to: currentChapterIndex - 1, proxy: nil)
+            switchChapter(to: currentChapterIndex - 1, proxy: nil, pageTurnBackward: true)
         } else if !backward && currentChapterIndex + 1 < chapters.count {
-            switchChapter(to: currentChapterIndex + 1, proxy: nil)
+            switchChapter(to: currentChapterIndex + 1, proxy: nil, pageTurnBackward: false)
         }
     }
 
-    private func pageTapOverlay(spread: Bool) -> some View {
-        HStack(spacing: 0) {
-            Color.clear.contentShape(Rectangle())
-                .onTapGesture { turnPage(backward: true, spread: spread) }
-            Color.clear.contentShape(Rectangle())
-                .onTapGesture { withAnimation { showHUD.toggle() } }
-            Color.clear.contentShape(Rectangle())
-                .onTapGesture { turnPage(backward: false, spread: spread) }
+    private var chapterPageTransition: AnyTransition {
+        guard let backward = chapterTurnBackward, !reduceMotion else { return .identity }
+        return .asymmetric(insertion: .move(edge: backward ? .leading : .trailing).combined(with: .opacity),
+                           removal: .move(edge: backward ? .trailing : .leading).combined(with: .opacity))
+    }
+
+    private func handlePageTap(_ region: ReaderPageTapRegion, spread: Bool) {
+        switch region {
+        case .backward: turnPage(backward: true, spread: spread)
+        case .center: withAnimation { showHUD.toggle() }
+        case .forward: turnPage(backward: false, spread: spread)
         }
+    }
+
+    private func pagerSelection(spread: Bool) -> Binding<Int> {
+        let token = layoutRestoration.token
+        let chapterURL = currentChapter?.url
+        return Binding(get: { spread ? self.currentSpreadIndex : self.currentPageIndex }, set: { index in
+            // Only a completed swipe from the current chapter/layout may commit progress.
+            guard !self.isRestoringPosition, !self.isLoading,
+                  self.layoutRestoration.token == token, self.currentChapter?.url == chapterURL else { return }
+            if spread { self.currentSpreadIndex = index } else { self.currentPageIndex = index }
+            self.selectPage(spread ? index * 2 : index)
+        })
     }
 
     private var horizontalPageReaderView: some View {
-        ZStack {
-            TabView(selection: $currentPageIndex) {
-                ForEach(readerPages.indices, id: \.self) { index in
-                    pageContent(readerPages[index], number: index + 1).tag(index)
-                }
+        AnimatedReaderPager(selection: pagerSelection(spread: false), count: readerPages.count,
+                            identity: AnyHashable(layoutRestoration.token), animateChanges: !isRestoringPosition,
+                            onTap: { handlePageTap($0, spread: false) },
+                            onBoundarySwipe: { turnPage(backward: $0, spread: false) }) { index in
+            if readerPages.indices.contains(index) {
+                pageContent(readerPages[index], number: index + 1)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .onChange(of: currentPageIndex) { selectPage($0) }
-            pageTapOverlay(spread: false)
         }
         .onAppear { restorePageFromParagraphIfNeeded(); finishPaginatedRestoration() }
     }
@@ -666,26 +690,24 @@ public struct ReaderView: View {
                     verticalScrollReaderView
                 }
             } else {
-                ZStack {
-                    TabView(selection: $currentSpreadIndex) {
-                        ForEach(0..<((readerPages.count + 1) / 2), id: \.self) { spread in
-                            HStack(spacing: 0) {
-                                pageContent(readerPages[spread * 2], number: spread * 2 + 1)
-                                if storage.readerConfig.effectiveShowDuoSpine { duoCenterHingeCrease }
-                                else { storage.readerConfig.theme.textColor.opacity(0.1).frame(width: 1) }
-                                if spread * 2 + 1 < readerPages.count {
-                                    pageContent(readerPages[spread * 2 + 1], number: spread * 2 + 2)
-                                } else {
-                                    Text("本章完").font(.caption)
-                                        .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.4))
-                                        .frame(width: pageViewportSize.width, height: readingAreaSize.height)
-                                }
-                            }.tag(spread)
+                AnimatedReaderPager(selection: pagerSelection(spread: true), count: (readerPages.count + 1) / 2,
+                                    identity: AnyHashable(layoutRestoration.token), animateChanges: !isRestoringPosition,
+                                    onTap: { handlePageTap($0, spread: true) },
+                                    onBoundarySwipe: { turnPage(backward: $0, spread: true) }) { spread in
+                    if readerPages.indices.contains(spread * 2) {
+                        HStack(spacing: 0) {
+                            pageContent(readerPages[spread * 2], number: spread * 2 + 1)
+                            if storage.readerConfig.effectiveShowDuoSpine { duoCenterHingeCrease }
+                            else { storage.readerConfig.theme.textColor.opacity(0.1).frame(width: 1) }
+                            if spread * 2 + 1 < readerPages.count {
+                                pageContent(readerPages[spread * 2 + 1], number: spread * 2 + 2)
+                            } else {
+                                Text("本章完").font(.caption)
+                                    .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.4))
+                                    .frame(width: pageViewportSize.width, height: readingAreaSize.height)
+                            }
                         }
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .onChange(of: currentSpreadIndex) { selectPage($0 * 2) }
-                    pageTapOverlay(spread: true)
                 }
                 .onAppear { restorePageFromParagraphIfNeeded(); finishPaginatedRestoration() }
             }
@@ -1203,6 +1225,7 @@ public struct ReaderView: View {
     }
 
     private func initializeReader() {
+        chapterTurnBackward = nil
         tocLoadTask?.cancel()
         tocRefreshTask?.cancel()
         chapterLoadTask?.cancel()
@@ -1348,9 +1371,11 @@ public struct ReaderView: View {
         }
     }
 
-    private func switchChapter(to newIndex: Int, proxy: ScrollViewProxy?, autoContinueTTS: Bool = false) {
+    private func switchChapter(to newIndex: Int, proxy: ScrollViewProxy?, autoContinueTTS: Bool = false,
+                               pageTurnBackward: Bool? = nil) {
         guard newIndex >= 0 && newIndex < chapters.count else { return }
         guard newIndex != currentChapterIndex else { return }
+        chapterTurnBackward = pageTurnBackward
         // If this book is being read aloud, stop the old chapter's audio before the new
         // chapter becomes current; otherwise stale audio would keep writing its paragraph
         // index into the newly selected chapter. Playback resumes once the text is loaded.
