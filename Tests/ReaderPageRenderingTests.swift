@@ -20,7 +20,12 @@ final class ReaderPageRenderingTests: XCTestCase {
                 // SwiftUI creates representable subviews after attachment to a visible window.
                 // A detached hosting view has no rendered UITextViews to inspect.
                 let container = UIViewController()
-                let window = UIWindow(frame: CGRect(origin: .zero, size: CGSize(width: 900, height: 700)))
+                let window: UIWindow
+                if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+                    window = UIWindow(windowScene: scene)
+                } else {
+                    window = UIWindow(frame: CGRect(origin: .zero, size: CGSize(width: 900, height: 700)))
+                }
                 window.rootViewController = container
                 window.makeKeyAndVisible()
                 container.addChild(controller)
