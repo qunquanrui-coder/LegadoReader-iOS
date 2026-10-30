@@ -18,7 +18,7 @@ public struct ReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var storage = StorageManager.shared
     @ObservedObject var speech = SpeechSynthesizerManager.shared
-    
+
     @State var book: Book
     @State private var chapters: [Chapter] = []
     @State private var currentChapterIndex: Int
@@ -35,7 +35,7 @@ public struct ReaderView: View {
     @State private var showChapterList = false
     @State private var showSettings = false
     @State private var showChangeSource = false
-    
+
     // Batch / Full-Book Caching State
     @State private var cacheProgressText: String? = nil
     @State private var isCachingChapters = false
@@ -56,13 +56,13 @@ public struct ReaderView: View {
     @State private var loadedContentChapterURL: String?
     /// Whether the current chapter list was fetched completely (drives "全本缓存完成" wording).
     @State private var isTocComplete: Bool = true
-    
+
     // Intra-Chapter Paragraph Restoration State
     @State private var targetRestoreParagraph: Int? = nil
     @State private var isRestoringPosition: Bool = false
     @State private var visibleParagraphIndices: Set<Int> = []
     @State private var restoreToastMessage: String? = nil
-    
+
     public init(book: Book) {
         let saved = StorageManager.shared.getSavedReadingPosition(for: book)
         var initialBook = StorageManager.shared.bookshelf.first(where: {
@@ -76,12 +76,12 @@ public struct ReaderView: View {
         _targetRestoreParagraph = State(initialValue: saved.paragraphIndex > 0 ? saved.paragraphIndex : nil)
         _isRestoringPosition = State(initialValue: saved.paragraphIndex > 0)
     }
-    
+
     private var currentChapter: Chapter? {
         guard currentChapterIndex >= 0 && currentChapterIndex < chapters.count else { return nil }
         return chapters[currentChapterIndex]
     }
-    
+
     /// Cached paragraphs of the current chapter — rebuilt only when content or purify/convert config changes,
     /// instead of re-running regex splitting & Chinese conversion on every SwiftUI render.
     @State private var formattedParagraphs: [String] = []
@@ -96,7 +96,7 @@ public struct ReaderView: View {
     @State private var pageViewportSize: CGSize = .zero
     /// Reference holder for progress-save throttling (mutating it never triggers a re-render).
     @State private var progressSaver = ProgressSaveThrottle()
-    
+
     private func applyChapterContent(_ text: String) {
         currentContent = text
         if readingAreaSize.width > 0 && readingAreaSize.height > 0 {
@@ -104,7 +104,7 @@ public struct ReaderView: View {
             updateReaderViewport(readingAreaSize, force: true)
         } else { rebuildLayout() }
     }
-    
+
     private var spineWidth: CGFloat { storage.readerConfig.effectiveShowDuoSpine ? 18 : 1 }
     private var pageStyle: ReaderPageStyle { ReaderPageStyle(config: storage.readerConfig) }
     private var isDuoSpreadActive: Bool { readingLayout == .spread }
@@ -179,7 +179,7 @@ public struct ReaderView: View {
             // Theme Background
             storage.readerConfig.theme.backgroundColor
                 .ignoresSafeArea()
-            
+
             VStack(spacing: 0) {
                 // Subtle Top Running Header
                 HStack {
@@ -207,7 +207,7 @@ public struct ReaderView: View {
                 }
                 .padding(.horizontal, 22)
                 .padding(.vertical, 6)
-                
+
                 // Main Reading Area: Vertical Scroll, Horizontal Slide, OR iPhone Duo Dual-Page Book Spread
                 if isLoading {
                     loadingStateView
@@ -216,7 +216,7 @@ public struct ReaderView: View {
                 } else {
                     readingArea
                 }
-                
+
                 // Subtle Bottom Footer
                 HStack {
                     Text(storage.readerConfig.effectiveChineseConversion.convert(book.title))
@@ -244,7 +244,7 @@ public struct ReaderView: View {
                 .padding(.horizontal, 22)
                 .padding(.vertical, 6)
             }
-            
+
             // Top Toast Pill when Restoring Intra-Chapter Paragraph
             if let toast = restoreToastMessage {
                 VStack {
@@ -265,7 +265,7 @@ public struct ReaderView: View {
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
-            
+
             // Floating TTS Audio Player Bar
             if showTTSBar || (speech.isSpeaking && ownsSpeech) {
                 VStack {
@@ -275,7 +275,7 @@ public struct ReaderView: View {
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            
+
             // Floating HUD Overlays
             if showHUD {
                 VStack {
@@ -356,7 +356,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     // MARK: - Loading & Error Views
     private var loadingStateView: some View {
         VStack(spacing: 14) {
@@ -369,7 +369,7 @@ public struct ReaderView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
     private func errorStateView(_ error: String) -> some View {
         VStack(spacing: 16) {
             Spacer()
@@ -380,20 +380,20 @@ public struct ReaderView: View {
                 .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.8))
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
-            
+
             HStack(spacing: 14) {
                 Button("重试加载") {
                     loadCurrentChapterContent(forceRefresh: true)
                 }
                 .buttonStyle(.bordered)
-                
+
                 if !chapters.isEmpty {
                     Button("查看目录") {
                         showChapterList = true
                     }
                     .buttonStyle(.bordered)
                 }
-                
+
                 Button("切换书源") {
                     showChangeSource = true
                 }
@@ -405,7 +405,7 @@ public struct ReaderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 24)
     }
-    
+
     // MARK: - 1. Vertical Scroll Reader View (LazyVStack for Exact Paragraph Tracking & Restoration)
     private var verticalScrollReaderView: some View {
         ScrollViewReader { scrollProxy in
@@ -414,7 +414,7 @@ public struct ReaderView: View {
                     Color.clear
                         .frame(height: 1)
                         .id("chapterTop")
-                    
+
                     if let chapter = currentChapter {
                         Text(storage.readerConfig.effectiveChineseConversion.convert(chapter.title))
                             .font(.system(
@@ -426,7 +426,7 @@ public struct ReaderView: View {
                             .padding(.top, 8)
                             .padding(.bottom, 6)
                     }
-                    
+
                     ForEach(Array(formattedParagraphs.enumerated()), id: \.offset) { idx, paragraph in
                         let isSpoken = speech.isSpeaking && ownsSpeech && speech.currentParagraphIndex == idx
                         Text(paragraph)
@@ -466,7 +466,7 @@ public struct ReaderView: View {
                                 }
                             }
                     }
-                    
+
                     // Chapter Bottom Navigation Bar
                     HStack(spacing: 16) {
                         Button {
@@ -483,7 +483,7 @@ public struct ReaderView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .disabled(currentChapterIndex <= 0)
-                        
+
                         Button {
                             if currentChapterIndex < chapters.count - 1 {
                                 switchChapter(to: currentChapterIndex + 1, proxy: scrollProxy)
@@ -528,7 +528,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     private func restoreParagraphScrollIfNeeded(proxy: ScrollViewProxy) {
         guard !formattedParagraphs.isEmpty else { return }
         guard let target = targetRestoreParagraph else { return }
@@ -711,7 +711,7 @@ public struct ReaderView: View {
         }
         .frame(width: 18)
     }
-    
+
     // MARK: - Floating TTS Control Bar (with Neural Voice Actor Selector)
     private var ttsControlOverlay: some View {
         VStack(spacing: 12) {
@@ -744,98 +744,12 @@ public struct ReaderView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            
-            HStack(spacing: 14) {
-                Button {
-                    speech.skipPrevious()
-                } label: {
-                    Image(systemName: "backward.end.fill")
-                        .font(.system(size: 16))
-                }
-                
-                Button {
-                    if speech.isSpeaking && ownsSpeech {
-                        speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
-                    } else {
-                        // Stopped, or another book owns playback: take over explicitly for this chapter.
-                        beginListeningHere()
-                    }
-                } label: {
-                    ZStack {
-                        Image(systemName: (speech.isSpeaking && !speech.isPaused) ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 36))
-                            .foregroundColor(.indigo)
-                        if speech.isLoadingAudio {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                        }
-                    }
-                }
-                
-                Button {
-                    speech.skipNext()
-                } label: {
-                    Image(systemName: "forward.end.fill")
-                        .font(.system(size: 16))
-                }
-                
-                Spacer()
-                
-                Menu {
-                    ForEach(NeuralVoiceActor.allCases) { actor in
-                        Button {
-                            speech.setVoice(actor)
-                        } label: {
-                            HStack {
-                                Text(actor.displayName)
-                                if speech.selectedVoice == actor {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "person.wave.2.fill")
-                            .font(.system(size: 10))
-                        Text(speech.selectedVoice.shortName)
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Color.orange.opacity(0.15))
-                    .foregroundColor(.orange)
-                    .clipShape(Capsule())
-                }
-                
-                Menu {
-                    ForEach([Float(0.8), Float(1.0), Float(1.25), Float(1.5)], id: \.self) { rate in
-                        Button(String(format: "%.2gx 语速", rate)) {
-                            speech.setRate(rate)
-                        }
-                    }
-                } label: {
-                    Text(String(format: "%.2gx", speech.speechRateMultiplier))
-                        .font(.system(size: 11, weight: .bold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(Color.indigo.opacity(0.14))
-                        .foregroundColor(.indigo)
-                        .clipShape(Capsule())
-                }
-                
-                Menu {
-                    Button("关闭定时") { speech.setSleepTimer(minutes: nil) }
-                    Button("15 分钟后停止") { speech.setSleepTimer(minutes: 15) }
-                    Button("30 分钟后停止") { speech.setSleepTimer(minutes: 30) }
-                    Button("60 分钟后停止") { speech.setSleepTimer(minutes: 60) }
-                } label: {
-                    Image(systemName: "timer")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(6)
-                        .background(Color(.tertiarySystemGroupedBackground))
-                        .clipShape(Circle())
-                }
+
+            if readingAreaSize.width < 460 {
+                HStack(spacing: 16) { ttsPlaybackControls; Spacer() }
+                HStack(spacing: 12) { ttsSettingsControls; Spacer(minLength: 0) }
+            } else {
+                HStack(spacing: 14) { ttsPlaybackControls; Spacer(); ttsSettingsControls }
             }
         }
         .padding(14)
@@ -844,7 +758,103 @@ public struct ReaderView: View {
         .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 16)
     }
-    
+
+    @ViewBuilder
+    private var ttsPlaybackControls: some View {
+        Button {
+            speech.skipPrevious()
+        } label: {
+            Image(systemName: "backward.end.fill")
+                .font(.system(size: 16))
+        }
+
+        Button {
+            if speech.isSpeaking && ownsSpeech {
+                speech.togglePlayPause(paragraphs: formattedParagraphs, currentIndex: currentParagraphIndex)
+            } else {
+                // Stopped, or another book owns playback: take over explicitly for this chapter.
+                beginListeningHere()
+            }
+        } label: {
+            ZStack {
+                Image(systemName: (speech.isSpeaking && !speech.isPaused) ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 36))
+                    .foregroundColor(.indigo)
+                if speech.isLoadingAudio {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                }
+            }
+        }
+
+        Button {
+            speech.skipNext()
+        } label: {
+            Image(systemName: "forward.end.fill")
+                .font(.system(size: 16))
+        }
+
+    }
+
+    @ViewBuilder
+    private var ttsSettingsControls: some View {
+
+        Menu {
+            ForEach(NeuralVoiceActor.allCases) { actor in
+                Button {
+                    speech.setVoice(actor)
+                } label: {
+                    HStack {
+                        Text(actor.displayName)
+                        if speech.selectedVoice == actor {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "person.wave.2.fill")
+                    .font(.system(size: 10))
+                Text(speech.selectedVoice.shortName)
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.orange.opacity(0.15))
+            .foregroundColor(.orange)
+            .clipShape(Capsule())
+        }
+
+        Menu {
+            ForEach([Float(0.8), Float(1.0), Float(1.25), Float(1.5)], id: \.self) { rate in
+                Button(String(format: "%.2gx 语速", rate)) {
+                    speech.setRate(rate)
+                }
+            }
+        } label: {
+            Text(String(format: "%.2gx", speech.speechRateMultiplier))
+                .font(.system(size: 11, weight: .bold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.indigo.opacity(0.14))
+                .foregroundColor(.indigo)
+                .clipShape(Capsule())
+        }
+
+        Menu {
+            Button("关闭定时") { speech.setSleepTimer(minutes: nil) }
+            Button("15 分钟后停止") { speech.setSleepTimer(minutes: 15) }
+            Button("30 分钟后停止") { speech.setSleepTimer(minutes: 30) }
+            Button("60 分钟后停止") { speech.setSleepTimer(minutes: 60) }
+        } label: {
+            Image(systemName: "timer")
+                .font(.system(size: 13, weight: .semibold))
+                .padding(6)
+                .background(Color(.tertiarySystemGroupedBackground))
+                .clipShape(Circle())
+        }    }
+
     // MARK: - Top HUD Bar (with Duo Split-TOC Toggle & Multi-Option Cache Menu)
     private var topBar: some View {
         HStack(spacing: 10) {
@@ -858,7 +868,7 @@ public struct ReaderView: View {
                     .background(Color.secondary.opacity(0.15))
                     .clipShape(Circle())
             }
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)
                     .font(.system(size: 15, weight: .bold))
@@ -868,9 +878,9 @@ public struct ReaderView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
-            
+
             Spacer()
-            
+
             if isDuoSpreadActive {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -880,7 +890,7 @@ public struct ReaderView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: showDuoSidebarTOC ? "book.pages.fill" : "sidebar.left")
-                        Text(showDuoSidebarTOC ? "双页" : "左屏目录")
+                        if readingAreaSize.width >= 560 { Text(showDuoSidebarTOC ? "双页" : "目录栏") }
                     }
                     .font(.system(size: 12, weight: .semibold))
                     .padding(.horizontal, 9)
@@ -890,7 +900,7 @@ public struct ReaderView: View {
                     .clipShape(Capsule())
                 }
             }
-            
+
             if isCachingChapters {
                 Button {
                     activeCacheTask?.cancel()
@@ -934,7 +944,7 @@ public struct ReaderView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.down.circle")
-                        Text("缓存")
+                        if readingAreaSize.width >= 420 { Text("缓存") }
                     }
                     .font(.system(size: 12, weight: .semibold))
                     .padding(.horizontal, 10)
@@ -944,13 +954,13 @@ public struct ReaderView: View {
                     .clipShape(Capsule())
                 }
             }
-            
+
             Button {
                 showChangeSource = true
             } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                    Text("换源")
+                    if readingAreaSize.width >= 420 { Text("换源") }
                 }
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 10)
@@ -959,7 +969,7 @@ public struct ReaderView: View {
                 .foregroundColor(.orange)
                 .clipShape(Capsule())
             }
-            
+
             Button {
                 loadCurrentChapterContent(forceRefresh: true)
             } label: {
@@ -972,7 +982,7 @@ public struct ReaderView: View {
         .background(.ultraThinMaterial)
         .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
     }
-    
+
     // MARK: - Bottom HUD Bar
     private var bottomBar: some View {
         VStack(spacing: 14) {
@@ -986,7 +996,7 @@ public struct ReaderView: View {
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .disabled(currentChapterIndex <= 0)
-                
+
                 if chapters.count > 1 {
                     Slider(
                         value: Binding(
@@ -1005,7 +1015,7 @@ public struct ReaderView: View {
                 } else {
                     Spacer()
                 }
-                
+
                 Button {
                     if currentChapterIndex < chapters.count - 1 {
                         switchChapter(to: currentChapterIndex + 1, proxy: nil)
@@ -1017,9 +1027,9 @@ public struct ReaderView: View {
                 .disabled(currentChapterIndex >= chapters.count - 1)
             }
             .padding(.horizontal, 18)
-            
+
             Divider()
-            
+
             HStack {
                 Spacer()
                 Button {
@@ -1088,14 +1098,14 @@ public struct ReaderView: View {
         .background(.ultraThinMaterial)
         .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: -2)
     }
-    
+
     // MARK: - Logic
     /// True when the TTS engine is idle, or is currently reading THIS book
     private var ownsSpeech: Bool {
         guard speech.isSpeaking, let ctx = speech.context else { return true }
         return ctx.book.title == book.title && ctx.book.author == book.author
     }
-    
+
     /// Explicit "listen here" intent (听书 button / play in the floating TTS bar).
     /// Takes ownership away from any other book or chapter before new audio is loaded.
     private func beginListeningHere() {
@@ -1140,7 +1150,7 @@ public struct ReaderView: View {
         )
         pendingListenStart = false
     }
-    
+
     /// Attaches this reader page to the TTS engine. When another book is being read aloud in the
     /// background, the reader leaves it alone unless `force` is set (user tapped 听书 here).
     private func setupSpeechCallbacks(force: Bool = false) {
@@ -1183,7 +1193,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     private func initializeReader() {
         tocLoadTask?.cancel()
         tocRefreshTask?.cancel()
@@ -1198,12 +1208,12 @@ public struct ReaderView: View {
         let requestedBook = book
         isLoading = true
         errorMessage = nil
-        
+
         storage.markBookAsRecentlyRead(book)
-        
+
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
-        
+
         // 1) Offline-first: a persisted TOC is enough to open every already-cached chapter.
         if let cachedToc = storage.loadCachedToc(for: requestedBook) {
             applyToc(cachedToc.chapters, consumeRelocation: true)
@@ -1213,7 +1223,7 @@ public struct ReaderView: View {
             refreshTocInBackground(book: requestedBook, source: source, loadID: loadID)
             return
         }
-        
+
         // 2) No local TOC yet: fetch it once from the network, then persist it for offline use.
         tocLoadTask = Task {
             do {
@@ -1245,7 +1255,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     /// Installs a chapter list and re-locates the chapter that was being read.
     /// Returns true when the chapter at the current index now points at different content.
     @discardableResult
@@ -1254,10 +1264,10 @@ public struct ReaderView: View {
         let previousURL = currentChapter?.url
         let previousTitle = currentChapter?.title
         let previousIndex = currentChapterIndex
-        
+
         chapters = newChapters
         book.totalChapters = newChapters.count
-        
+
         // Source switch: re-locate by title in the new site's chapter numbering.
         if consumeRelocation, let relocateTitle = storage.consumePendingRelocation(for: book) {
             let matched = ChapterTextFormatter.bestMatchIndex(title: relocateTitle, in: newChapters, nearIndex: previousIndex)
@@ -1271,7 +1281,7 @@ public struct ReaderView: View {
                                          : "新书源未找到同名章节，已定位到相近位置")
             return true
         }
-        
+
         let resolved = ChapterTextFormatter.resolvedChapterIndex(
             in: newChapters,
             preferredURL: previousURL,
@@ -1289,14 +1299,14 @@ public struct ReaderView: View {
         }
         return movedToDifferentChapter
     }
-    
+
     private func showTOCNotice(_ message: String) {
         withAnimation { restoreToastMessage = message }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
             withAnimation { self.restoreToastMessage = nil }
         }
     }
-    
+
     /// Silently refreshes the TOC when the reader opened from the persisted snapshot.
     /// Failures keep the offline copy and never surface an error banner.
     private func refreshTocInBackground(book requestedBook: Book, source: BookSource, loadID: UUID) {
@@ -1329,7 +1339,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     private func switchChapter(to newIndex: Int, proxy: ScrollViewProxy?, autoContinueTTS: Bool = false) {
         guard newIndex >= 0 && newIndex < chapters.count else { return }
         guard newIndex != currentChapterIndex else { return }
@@ -1359,13 +1369,13 @@ public struct ReaderView: View {
         }
         loadCurrentChapterContent(autoContinueTTS: resumeTTS)
     }
-    
+
     private func loadCurrentChapterContent(forceRefresh: Bool = false, autoContinueTTS: Bool = false) {
         guard let chapter = currentChapter else { return }
         chapterLoadTask?.cancel()
         let loadID = loadTokens.beginChapterLoad()
         let requestedBook = book
-        
+
         if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index,
                                                                chapterURL: chapter.url, sourceURL: book.sourceUrl) {
             self.applyChapterContent(cached)
@@ -1379,20 +1389,20 @@ public struct ReaderView: View {
             self.resumeTTSIfNeeded(autoContinueTTS: autoContinueTTS, chapter: chapter)
             return
         }
-        
+
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
-        
+
         isLoading = true
         errorMessage = nil
-        
+
         let nextURL = currentChapterIndex + 1 < chapters.count ? chapters[currentChapterIndex + 1].url : nil
         chapterLoadTask = Task {
             do {
                 let content = try await ChapterContentLoader.shared.load(chapter: chapter, source: source,
                                                                          referer: requestedBook.bookUrl, nextChapterURL: nextURL)
                 try Task.checkCancellation()
-                
+
                 await MainActor.run {
                     guard self.loadTokens.isCurrentChapterLoad(loadID), self.currentChapter?.url == chapter.url,
                           self.book.bookUrl == requestedBook.bookUrl else { return }
@@ -1427,7 +1437,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     /// Restarts TTS after a chapter switch (or after an explicit 听书 tap that happened
     /// before the chapter text existed). Never starts playback the user did not ask for.
     private func resumeTTSIfNeeded(autoContinueTTS: Bool, chapter: Chapter) {
@@ -1461,7 +1471,7 @@ public struct ReaderView: View {
                             chapterTitle: chapter.title,
                             initiallyPaused: wasPaused)
     }
-    
+
     private func restorePageFromParagraphIfNeeded() {
         guard !readerPages.isEmpty else { return }
         currentPageIndex = ReaderPageLocator.pageIndex(paragraphIndex: targetRestoreParagraph ?? currentParagraphIndex,
@@ -1472,7 +1482,7 @@ public struct ReaderView: View {
     private func prefetchNextChapter() {
         let nextIdx = currentChapterIndex + 1
         guard nextIdx < chapters.count else { return }
-        
+
         let nextCh = chapters[nextIdx]
         let requestedBook = book
         guard !storage.isChapterCached(bookId: book.id, chapterIndex: nextCh.index,
@@ -1480,7 +1490,7 @@ public struct ReaderView: View {
         let followingURL = nextIdx + 1 < chapters.count ? chapters[nextIdx + 1].url : nil
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
-        
+
         prefetchTask?.cancel()
         prefetchTask = Task {
             if let content = try? await ChapterContentLoader.shared.load(chapter: nextCh, source: source,
@@ -1490,7 +1500,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     // MARK: - Concurrent Chapter Caching (30 / 100 / Remaining / Full Book)
     private func startCaching(scope: ChapterCacheScope) {
         guard !chapters.isEmpty else { return }
@@ -1508,7 +1518,7 @@ public struct ReaderView: View {
             endIdx = chapters.count - 1
         }
         guard startIdx <= endIdx else { return }
-        
+
         let completeTOC = chapters
         let targetChapters = Array(chapters[startIdx...endIdx])
         let total = targetChapters.count
@@ -1519,11 +1529,11 @@ public struct ReaderView: View {
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         let bookId = book.id
         let bookUrl = book.bookUrl
-        
+
         showHUD = false
         isCachingChapters = true
         cacheProgressText = "正在高速缓存 0/\(total) 章..."
-        
+
         activeCacheTask?.cancel()
         activeCacheTask = Task {
             var completed = 0
@@ -1532,7 +1542,7 @@ public struct ReaderView: View {
                 guard !Task.isCancelled else { break }
                 let chunkEnd = min(total, chunkStart + batchSize)
                 let slice = Array(targetChapters[chunkStart..<chunkEnd])
-                
+
                 let savedCount = await withTaskGroup(of: Bool.self) { group -> Int in
                     for ch in slice {
                         group.addTask {
@@ -1580,7 +1590,7 @@ public struct ReaderView: View {
             }
         }
     }
-    
+
     private func saveProgress(force: Bool = false) {
         guard let ch = currentChapter else { return }
         let bookId = book.id
@@ -1593,7 +1603,7 @@ public struct ReaderView: View {
         if isRestoringPosition && !force { return }
         let paraIdx = layoutRestoration.anchor.flatMap { $0.chapterURL == ch.url ? $0.paragraphIndex : nil }
             ?? currentParagraphIndex
-        
+
         let commitSave = {
             StorageManager.shared.updateBookProgress(
                 bookId: bookId,
@@ -1605,10 +1615,10 @@ public struct ReaderView: View {
                 paragraphIndex: paraIdx
             )
         }
-        
+
         progressSaver.pending?.cancel()
         progressSaver.pending = nil
-        
+
         let now = Date()
         if force || now.timeIntervalSince(progressSaver.lastSave) >= 1.2 {
             progressSaver.lastSave = now
