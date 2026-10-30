@@ -5,7 +5,7 @@ import UIKit
 
 final class ReaderPageRenderingTests: XCTestCase {
     @MainActor
-    func testRenderedFragmentsFitAtCoverAndInnerPageWidths() {
+    func testRenderedFragmentsFitAtCoverAndInnerPageWidths() async throws {
         let paragraphs = [String(repeating: "分页后每一个字都必须在页面以内。👩🏽‍💻 ", count: 40), "章节最后一段必须保留。"]
         for width in [CGFloat(235), CGFloat(330), CGFloat(430)] {
             let size = CGSize(width: width, height: 390)
@@ -17,10 +17,25 @@ final class ReaderPageRenderingTests: XCTestCase {
                 let controller = UIHostingController(rootView:
                     MeasuredReaderPage(page: page, style: style, size: size, textColor: .black,
                                        highlightedParagraph: nil).ignoresSafeArea())
-                controller.loadViewIfNeeded()
+                // SwiftUI creates representable subviews after attachment to a visible window.
+                // A detached hosting view has no rendered UITextViews to inspect.
+                let container = UIViewController()
+                let window = UIWindow(frame: CGRect(origin: .zero, size: CGSize(width: 900, height: 700)))
+                window.rootViewController = container
+                window.makeKeyAndVisible()
+                container.addChild(controller)
+                container.view.addSubview(controller.view)
+                controller.didMove(toParent: container)
                 controller.view.frame = CGRect(origin: .zero, size: size)
-                controller.view.setNeedsLayout()
-                controller.view.layoutIfNeeded()
+                defer { window.isHidden = true; window.rootViewController = nil }
+                for _ in 0..<100 {
+                    container.view.layoutIfNeeded()
+                    controller.view.layoutIfNeeded()
+                    let rendered = descendants(of: controller.view).compactMap { $0 as? UITextView }
+                    if rendered.count == page.items.count + (page.title == nil ? 0 : 1),
+                       rendered.allSatisfy({ $0.bounds.width > 0 && $0.bounds.height > 0 }) { break }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
                 let textViews = descendants(of: controller.view).compactMap { $0 as? UITextView }
                 XCTAssertEqual(textViews.count, page.items.count + (page.title == nil ? 0 : 1))
                 for text in textViews {
