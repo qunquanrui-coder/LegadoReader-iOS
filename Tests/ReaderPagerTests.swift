@@ -5,6 +5,34 @@ import UIKit
 
 final class ReaderPagerTests: XCTestCase {
     @MainActor
+    func testProgrammaticTurnsExcludeDragsButKeepTapsAndNativeSwipesAvailable() throws {
+        let recorder = TransitionRecorder()
+        let controller = recorder.makeController()
+        configure(controller, selection: 0)
+        let pager = try XCTUnwrap(controller.pager)
+        let pan = try XCTUnwrap(pager.view.subviews.compactMap { $0 as? UIScrollView }.first?.panGestureRecognizer)
+        let tap = try XCTUnwrap(controller.view.gestureRecognizers?.compactMap { $0 as? UITapGestureRecognizer }.first)
+        XCTAssertTrue(pan.isEnabled)
+        configure(controller, selection: 1)
+        XCTAssertFalse(pan.isEnabled, "A drag must not race the programmatic completion")
+        XCTAssertTrue(tap.isEnabled, "Rapid taps must still be accepted")
+        configure(controller, selection: 2)
+        recorder.requests[0].complete(true)
+        XCTAssertFalse(pan.isEnabled, "The queued turn still owns the pager")
+        recorder.requests[1].complete(true)
+        XCTAssertTrue(pan.isEnabled)
+
+        let current = try XCTUnwrap(pager.viewControllers?.first)
+        let next = try XCTUnwrap(controller.pageViewController(pager, viewControllerAfter: current))
+        controller.pageViewController(pager, willTransitionTo: [next])
+        XCTAssertTrue(pan.isEnabled, "An interactive swipe must keep following the finger")
+        controller.pageViewController(pager, didFinishAnimating: true,
+                                      previousViewControllers: [current], transitionCompleted: false)
+        XCTAssertTrue(pan.isEnabled)
+        XCTAssertEqual(controller.visibleIndex, 2)
+    }
+
+    @MainActor
     func testTapChangesUseDirectionalAnimationsAndQueueLatestSelection() throws {
         let recorder = TransitionRecorder()
         let controller = recorder.makeController()

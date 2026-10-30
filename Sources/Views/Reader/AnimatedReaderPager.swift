@@ -181,10 +181,15 @@ final class ReaderPagerController: UIViewController, UIPageViewControllerDataSou
         let transition = UUID()
         transitionID = transition
         isTransitioning = true
+        // A native drag must not interrupt a programmatic slide and finish outside its
+        // completion token. Keep the root tap active so rapid taps can still queue a target.
+        let pan = pager.view.subviews.compactMap { $0 as? UIScrollView }.first?.panGestureRecognizer
+        pan?.isEnabled = false
         let completion: (Bool) -> Void = { [weak self] _ in
             guard let self, self.generation == generation, self.transitionID == transition else { return }
             self.visibleIndex = (pager.viewControllers?.first as? ReaderHostedPageController)?.index ?? targetIndex
             self.isTransitioning = false
+            pan?.isEnabled = true
             self.prunePages()
             // Programmatic changes already came from the binding. Publishing them again could
             // reset a newer tap or a speech paragraph that advanced during the animation.
