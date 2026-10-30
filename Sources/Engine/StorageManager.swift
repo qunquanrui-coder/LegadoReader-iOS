@@ -569,12 +569,12 @@ public class StorageManager: ObservableObject {
         if merged.showDuoSpine == nil { merged.showDuoSpine = fallback.showDuoSpine }
 
         var rules = merged.effectivePurifyRules
-        var seenPatterns = Set(rules.map { "\($0.pattern)_\($0.isRegex)" })
-        for rule in fallback.effectivePurifyRules where !seenPatterns.contains("\(rule.pattern)_\(rule.isRegex)") {
-            seenPatterns.insert("\(rule.pattern)_\(rule.isRegex)")
+        var seenPatterns = Set(rules)
+        for rule in fallback.effectivePurifyRules where !seenPatterns.contains(rule) {
+            seenPatterns.insert(rule)
             rules.append(rule)
         }
-        merged.purifyRules = rules
+        merged.customPurifyRules = rules
         return merged
     }
 

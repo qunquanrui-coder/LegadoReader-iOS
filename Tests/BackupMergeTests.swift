@@ -203,19 +203,19 @@ final class BackupMergeTests: XCTestCase {
         local.setTypography(ReaderTypography(fontSize: 18, lineSpacing: 7), for: .compact)
         local.setTypography(ReaderTypography(fontSize: 24, lineSpacing: 14), for: .wide)
         local.effectiveTapMode = .leftHanded
-        local.purifyRules = ReaderConfig.defaultPurifyRules + [PurifyRule(name: "本地规则", pattern: "广告A", isRegex: false)]
+        local.customPurifyRules = ["广告A"]
 
         var olderBackup = ReaderConfig.default
-        olderBackup.theme = .parchment
-        olderBackup.purifyRules = ReaderConfig.defaultPurifyRules + [PurifyRule(name: "备份规则", pattern: "广告B", isRegex: false)]
+        olderBackup.theme = .sepia
+        olderBackup.customPurifyRules = ["广告B"]
 
         let merged = StorageManager.mergeReaderConfig(local: local, backup: olderBackup, preferLocal: true)
         XCTAssertEqual(merged.theme, .pureBlack)
         XCTAssertEqual(merged.typography(for: .compact), ReaderTypography(fontSize: 18, lineSpacing: 7))
         XCTAssertEqual(merged.typography(for: .wide), ReaderTypography(fontSize: 24, lineSpacing: 14))
         XCTAssertEqual(merged.effectiveTapMode, .leftHanded)
-        XCTAssertTrue(merged.effectivePurifyRules.contains(where: { $0.pattern == "广告A" }))
-        XCTAssertTrue(merged.effectivePurifyRules.contains(where: { $0.pattern == "广告B" }))
+        XCTAssertTrue(merged.effectivePurifyRules.contains("广告A"))
+        XCTAssertTrue(merged.effectivePurifyRules.contains("广告B"))
     }
 
     func testResolveLastReadBookIdPrefersNewerReadingSession() {
