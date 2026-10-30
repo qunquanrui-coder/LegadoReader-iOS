@@ -179,20 +179,21 @@ final class BackupMergeTests: XCTestCase {
 
     func testNewerBackupKeepsCanonicalLocalShelfBookId() {
         let now = Date()
-        let local = Book(id: "local-canonical-id", title: "同书不同源", author: "作者",
+        let local = Book(title: "同书不同源", author: "作者",
                          sourceUrl: "https://a.invalid", sourceName: "A",
                          bookUrl: "https://a.invalid/book/1",
                          currentChapterIndex: 10, lastReadTime: now.addingTimeInterval(-3600))
-        let backup = Book(id: "backup-other-id", title: "同书不同源", author: "作者",
+        let backup = Book(title: "同书不同源", author: "作者",
                           sourceUrl: "https://b.invalid", sourceName: "B",
                           bookUrl: "https://b.invalid/book/9",
                           currentChapterIndex: 55, currentParagraphIndex: 3, lastReadTime: now)
+        XCTAssertNotEqual(local.id, backup.id)
         let result = StorageManager.mergeBackupState(
             localBooks: [local], localPositions: [:], localTitles: [:],
             backupBooks: [backup], backupPositions: [:], backupTitles: [:]
         )
         XCTAssertEqual(result.bookshelf.count, 1)
-        XCTAssertEqual(result.bookshelf[0].id, "local-canonical-id")
+        XCTAssertEqual(result.bookshelf[0].id, local.id)
         XCTAssertEqual(result.bookshelf[0].currentChapterIndex, 55)
         XCTAssertEqual(result.bookshelf[0].currentParagraphIndex, 3)
     }
