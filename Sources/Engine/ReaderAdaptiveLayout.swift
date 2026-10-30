@@ -68,9 +68,13 @@ public struct ReaderLayoutRestoration {
         self.token == token && anchor?.chapterURL == chapterURL
     }
 
-    public mutating func finish(_ token: UUID, chapterURL: String?) -> ReaderTextAnchor? {
+    public mutating func finish(_ token: UUID, chapterURL: String?, liveParagraphIndex: Int? = nil) -> ReaderTextAnchor? {
         guard accepts(token, chapterURL: chapterURL) else { return nil }
-        let restored = anchor
+        var restored = anchor
+        if let liveParagraphIndex = liveParagraphIndex {
+            restored?.paragraphIndex = max(0, liveParagraphIndex)
+            restored?.characterOffset = 0
+        }
         anchor = nil
         return restored
     }

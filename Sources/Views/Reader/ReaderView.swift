@@ -145,16 +145,23 @@ public struct ReaderView: View {
                                                style: pageStyle, viewport: pageViewportSize)
     }
 
+    private var liveSpokenParagraph: Int? {
+        guard speech.isSpeaking, speech.context?.book.id == book.id,
+              speech.context?.chapterIndex == currentChapterIndex else { return nil }
+        return min(speech.currentParagraphIndex, max(0, formattedParagraphs.count - 1))
+    }
+
     private func finishPaginatedRestoration() {
         let token = layoutRestoration.token
         let chapterURL = currentChapter?.url
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard self.readingLayout != .scroll,
-                  let anchor = self.layoutRestoration.finish(token, chapterURL: chapterURL),
+                  let anchor = self.layoutRestoration.finish(token, chapterURL: chapterURL, liveParagraphIndex: self.liveSpokenParagraph),
                   self.currentChapter?.url == chapterURL else { return }
             self.currentParagraphIndex = min(anchor.paragraphIndex, max(0, self.formattedParagraphs.count - 1))
             self.currentCharacterOffset = anchor.characterOffset
             self.targetRestoreParagraph = nil
+            self.restorePageFromParagraphIfNeeded()
             self.isRestoringPosition = false
         }
     }
@@ -549,11 +556,12 @@ public struct ReaderView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
             guard self.currentChapter?.url == chapterURL,
                   self.layoutRestoration.accepts(token, chapterURL: chapterURL) else { return }
-            withAnimation(.none) { proxy.scrollTo("para_\(clamped)", anchor: .top) }
-            self.currentParagraphIndex = clamped
+            let restoredParagraph = self.liveSpokenParagraph ?? clamped
+            withAnimation(.none) { proxy.scrollTo("para_\(restoredParagraph)", anchor: .top) }
+            self.currentParagraphIndex = restoredParagraph
             self.currentCharacterOffset = 0
             self.targetRestoreParagraph = nil
-            _ = self.layoutRestoration.finish(token, chapterURL: chapterURL)
+            _ = self.layoutRestoration.finish(token, chapterURL: chapterURL, liveParagraphIndex: self.liveSpokenParagraph)
             self.isRestoringPosition = false
         }
     }

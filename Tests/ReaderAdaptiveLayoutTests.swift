@@ -45,6 +45,14 @@ final class ReaderAdaptiveLayoutTests: XCTestCase {
         XCTAssertNil(restoration.finish(id, chapterURL: "old"))
     }
 
+    func testSpeechAdvancingDuringResizeWinsOverCapturedParagraph() {
+        var restoration = ReaderLayoutRestoration()
+        let id = restoration.begin(ReaderTextAnchor(chapterURL: "same", paragraphIndex: 72, characterOffset: 180))
+        let finished = restoration.finish(id, chapterURL: "same", liveParagraphIndex: 73)
+        XCTAssertEqual(finished?.paragraphIndex, 73)
+        XCTAssertEqual(finished?.characterOffset, 0)
+    }
+
     func testOldConfigAndBackupDecodeWithoutSpineSetting() throws {
         let data = try JSONEncoder().encode(ReaderConfig.default)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
