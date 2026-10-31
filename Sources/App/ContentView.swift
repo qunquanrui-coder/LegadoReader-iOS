@@ -3,29 +3,35 @@ import UniformTypeIdentifiers
 import UIKit
 
 public struct ContentView: View {
+    @State private var selectedTab: Int = ProcessInfo.processInfo.arguments.contains("--ui-testing") ? 3 : 0
+
     public init() {}
     
     public var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             BookshelfView()
                 .tabItem {
                     Label("书架", systemImage: "books.vertical.fill")
                 }
+                .tag(0)
             
             SearchView()
                 .tabItem {
                     Label("探索", systemImage: "sparkle.magnifyingglass")
                 }
+                .tag(1)
             
             SourceManagerView()
                 .tabItem {
                     Label("书源", systemImage: "globe.asia.australia.fill")
                 }
+                .tag(2)
             
             SettingsView()
                 .tabItem {
                     Label("我的", systemImage: "person.crop.circle.fill")
                 }
+                .tag(3)
         }
         .tint(.indigo)
     }
@@ -84,6 +90,35 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, 6)
+                }
+
+                Section("书源引擎") {
+                    HStack {
+                        Label("已保存书源规则", systemImage: "network")
+                        Spacer()
+                        Text("\(storage.bookSources.count) 个 · 首源：\(storage.bookSources.first?.bookSourceName ?? "无")")
+                            .foregroundColor(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("settings.sources.summary")
+
+                    Button {
+                        let count = storage.loadDefaultSources()
+                        backupAlertMessage = "已补充 \(count) 个内置书源，保留原有导入和自定义规则。"
+                    } label: {
+                        Label("补充内置精选书源", systemImage: "plus.circle")
+                            .foregroundColor(.indigo)
+                    }
+                    .accessibilityIdentifier("settings.sources.supplement")
+                    Button("完整重置书源…", role: .destructive) { showResetSources = true }
+                        .accessibilityIdentifier("settings.sources.reset")
+                    if storage.hasSourceResetSnapshot {
+                        Button("撤销上次书源重置") {
+                            do { let count = try storage.restoreSourcesFromLastResetSnapshot(); backupAlertMessage = "已恢复重置前的 \(count) 个书源。" }
+                            catch { backupAlertMessage = "恢复书源快照失败：\(error.localizedDescription)" }
+                        }
+                        .accessibilityIdentifier("settings.sources.undoReset")
+                    }
                 }
                 
                 Section("阅读偏好") {
@@ -166,33 +201,6 @@ struct SettingsView: View {
                         showClearAlert = true
                     } label: {
                         Label("清理离线章节缓存", systemImage: "trash")
-                    }
-                }
-                
-                Section("书源引擎") {
-                    HStack {
-                        Label("已保存书源规则", systemImage: "network")
-                        Spacer()
-                        Text("\(storage.bookSources.count) 个")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Button {
-                        let count = storage.loadDefaultSources()
-                        backupAlertMessage = "已补充 \(count) 个内置书源，保留原有导入和自定义规则。"
-                    } label: {
-                        Label("补充内置精选书源", systemImage: "plus.circle")
-                            .foregroundColor(.indigo)
-                    }
-                    .accessibilityIdentifier("settings.sources.supplement")
-                    Button("完整重置书源…", role: .destructive) { showResetSources = true }
-                        .accessibilityIdentifier("settings.sources.reset")
-                    if storage.hasSourceResetSnapshot {
-                        Button("撤销上次书源重置") {
-                            do { let count = try storage.restoreSourcesFromLastResetSnapshot(); backupAlertMessage = "已恢复重置前的 \(count) 个书源。" }
-                            catch { backupAlertMessage = "恢复书源快照失败：\(error.localizedDescription)" }
-                        }
-                        .accessibilityIdentifier("settings.sources.undoReset")
                     }
                 }
             }

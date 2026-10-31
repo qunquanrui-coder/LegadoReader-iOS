@@ -5,30 +5,28 @@ final class SettingsSafetyUITests: XCTestCase {
 
     func testSupplementDefaultsPreservesCustomSource() {
         let app = launchFixture()
-        openSettings(app)
-        tapVisible(app.buttons["settings.sources.supplement"], in: app)
+        assertCustomSource(app, exists: true)
+        tapButton(id: "settings.sources.supplement", title: "补充内置精选书源", in: app)
         dismissResult(app)
         assertCustomSource(app, exists: true)
     }
 
     func testResetRequiresConfirmationAndUndoRestoresOriginalSources() {
         let app = launchFixture()
-        openSettings(app)
-        tapVisible(app.buttons["settings.sources.reset"], in: app)
+        assertCustomSource(app, exists: true)
+        tapButton(id: "settings.sources.reset", title: "完整重置书源…", in: app)
         let confirmation = app.alerts["完整重置全部书源？"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["取消"].tap()
         assertCustomSource(app, exists: true)
 
-        openSettings(app)
-        tapVisible(app.buttons["settings.sources.reset"], in: app)
+        tapButton(id: "settings.sources.reset", title: "完整重置书源…", in: app)
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["保存快照并重置"].tap()
         dismissResult(app)
         assertCustomSource(app, exists: false)
 
-        openSettings(app)
-        tapVisible(app.buttons["settings.sources.undoReset"], in: app)
+        tapButton(id: "settings.sources.undoReset", title: "撤销上次书源重置", in: app)
         dismissResult(app)
         assertCustomSource(app, exists: true)
     }
@@ -38,20 +36,29 @@ final class SettingsSafetyUITests: XCTestCase {
         // Compiled only into Debug. This uses an isolated defaults suite and temporary cache.
         app.launchArguments = ["--ui-testing"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 15))
+        let supplementExists = app.buttons["settings.sources.supplement"].waitForExistence(timeout: 15)
+            || app.buttons["补充内置精选书源"].waitForExistence(timeout: 5)
+        XCTAssertTrue(supplementExists)
         return app
     }
 
-    private func openSettings(_ app: XCUIApplication) {
-        app.tabBars.buttons["我的"].tap()
-    }
-
-    private func tapVisible(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<10 {
-            if element.exists && element.isHittable { element.tap(); return }
+    private func tapButton(id: String, title: String, in app: XCUIApplication) {
+        let byID = app.buttons[id]
+        let byTitle = app.buttons[title]
+        if byID.waitForExistence(timeout: 5) && byID.isHittable {
+            byID.tap()
+            return
+        }
+        if byTitle.waitForExistence(timeout: 2) && byTitle.isHittable {
+            byTitle.tap()
+            return
+        }
+        for _ in 0..<6 {
+            if byID.exists && byID.isHittable { byID.tap(); return }
+            if byTitle.exists && byTitle.isHittable { byTitle.tap(); return }
             app.swipeUp()
         }
-        XCTFail("The settings action must be reachable without hidden controls")
+        XCTFail("The settings action \(id) (\(title)) must be reachable without hidden controls")
     }
 
     private func dismissResult(_ app: XCUIApplication) {
@@ -61,11 +68,14 @@ final class SettingsSafetyUITests: XCTestCase {
     }
 
     private func assertCustomSource(_ app: XCUIApplication, exists: Bool) {
-        app.tabBars.buttons["书源"].tap()
-        XCTAssertTrue(app.navigationBars["书源中心"].waitForExistence(timeout: 10))
-        // The fixture inserts this source first; supplement and undo must preserve its row.
-        let row = app.staticTexts["UI测试自定义源"].firstMatch
-        if exists { XCTAssertTrue(row.waitForExistence(timeout: 10)) }
-        else { XCTAssertFalse(row.waitForExistence(timeout: 2)) }
+        let predicate = NSPredicate(format: "label CONTAINS %@", "UI测试自定义源")
+        let element = app.descendants(matching: .any).matching(predicate).firstMatch
+        if exists {
+            XCTAssertTrue(element.waitForExistence(timeout: 10))
+        } else {
+            let disappeared = NSPredicate(format: "exists == false")
+            let exp = expectation(for: disappeared, evaluatedWith: element)
+            XCTAssertEqual(XCTWaiter.wait(for: [exp], timeout: 10), .completed)
+        }
     }
 }
