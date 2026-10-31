@@ -37,6 +37,17 @@ struct SettingsView: View {
     @State private var showClearAlert = false
     @State private var showFileImporter = false
     @State private var backupAlertMessage: String? = nil
+    @State private var preparingBackup = false
+    @State private var backupTask: Task<Void, Never>?
+    @State private var backupOperationID = UUID()
+    @State private var preparedBackupURL: URL?
+    @State private var showBackupShare = false
+    @State private var pendingRestoreJSON: String?
+    @State private var showRestoreConfirmation = false
+    @State private var showResetSources = false
+    @State private var sourcePolicy: BackupSourcePolicy = .keepLocal
+    @State private var configPolicy: BackupConfigPolicy = .newest
+    private let backupExporter = BackupFileExporter()
     
     private var appVersion: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "3.3.0"
@@ -102,32 +113,36 @@ struct SettingsView: View {
                 }
                 
                 Section("数据备份与恢复 (防丢失)") {
-                    if let backupURL = storage.exportFullBackupFileURL() {
-                        ShareLink(item: backupURL) {
-                            Label("导出完整备份文件 (书架/进度/书源)", systemImage: "square.and.arrow.up")
-                        }
-                    }
+                    Button { prepareBackup(share: true) } label: {
+                        Label(preparingBackup ? "正在准备备份…" : "导出完整备份文件 (书架/进度/书源)", systemImage: "square.and.arrow.up")
+                    }.disabled(preparingBackup)
                     
                     Button {
-                        if let json = storage.exportFullBackupJSON() {
-                            UIPasteboard.general.string = json
-                            backupAlertMessage = "已将完整备份（含 \(storage.bookshelf.count) 本藏书、阅读进度与 \(storage.bookSources.count) 个书源）复制到剪贴板！"
-                        }
+                        prepareBackup(share: false)
                     } label: {
                         Label("复制备份 JSON 到剪贴板", systemImage: "doc.on.doc")
                     }
+                    .disabled(preparingBackup)
+
+                    Picker("恢复时的书源", selection: $sourcePolicy) {
+                        Text("保留本地书源").tag(BackupSourcePolicy.keepLocal)
+                        Text("使用备份书源").tag(BackupSourcePolicy.useBackup)
+                    }
+                    Picker("恢复时的阅读设置", selection: $configPolicy) {
+                        Text("按设置修改时间").tag(BackupConfigPolicy.newest)
+                        Text("保留本地设置").tag(BackupConfigPolicy.keepLocal)
+                        Text("使用备份设置").tag(BackupConfigPolicy.useBackup)
+                    }
+                    Text("保留本地书源可继续使用原有离线内容；更换为备份书源后可能需要重新缓存。备份文件不包含离线正文。")
+                        .font(.caption).foregroundColor(.secondary)
                     
                     Button {
                         guard let str = UIPasteboard.general.string, !str.isEmpty else {
                             backupAlertMessage = "剪贴板为空，请先复制备份 JSON 内容"
                             return
                         }
-                        do {
-                            let res = try storage.restoreFromBackupJSON(str)
-                            backupAlertMessage = "恢复成功！已导入 \(res.booksCount) 本藏书、\(res.sourcesCount) 个书源及全部章节/段落阅读进度。"
-                        } catch {
-                            backupAlertMessage = "备份解析失败：\(error.localizedDescription)"
-                        }
+                        pendingRestoreJSON = str
+                        showRestoreConfirmation = true
                     } label: {
                         Label("从剪贴板恢复备份", systemImage: "arrow.down.doc")
                     }
@@ -163,16 +178,46 @@ struct SettingsView: View {
                     }
                     
                     Button {
-                        storage.loadDefaultSources()
+                        let count = storage.loadDefaultSources()
+                        backupAlertMessage = "已补充 \(count) 个内置书源，保留原有导入和自定义规则。"
                     } label: {
-                        Label("恢复内置 20 个精选书源", systemImage: "arrow.counterclockwise")
+                        Label("补充内置精选书源", systemImage: "plus.circle")
                             .foregroundColor(.indigo)
+                    }
+                    .accessibilityIdentifier("settings.sources.supplement")
+                    Button("完整重置书源…", role: .destructive) { showResetSources = true }
+                        .accessibilityIdentifier("settings.sources.reset")
+                    if storage.hasSourceResetSnapshot {
+                        Button("撤销上次书源重置") {
+                            do { let count = try storage.restoreSourcesFromLastResetSnapshot(); backupAlertMessage = "已恢复重置前的 \(count) 个书源。" }
+                            catch { backupAlertMessage = "恢复书源快照失败：\(error.localizedDescription)" }
+                        }
+                        .accessibilityIdentifier("settings.sources.undoReset")
                     }
                 }
             }
             .navigationTitle("关于与设置")
             .onAppear {
                 calculateCacheSize()
+            }
+            .onDisappear { backupOperationID = UUID(); backupTask?.cancel(); preparingBackup = false }
+            .sheet(isPresented: $showBackupShare) {
+                if let url = preparedBackupURL { BackupShareSheet(url: url) }
+            }
+            .alert("确认合并恢复备份？", isPresented: $showRestoreConfirmation) {
+                Button("恢复") { restorePendingBackup() }
+                Button("取消", role: .cancel) { pendingRestoreJSON = nil }
+            } message: {
+                Text("将按上面选择的书源和阅读设置策略合并备份，保留较新的阅读进度。")
+            }
+            .alert("完整重置全部书源？", isPresented: $showResetSources) {
+                Button("保存快照并重置", role: .destructive) {
+                    do { _ = try storage.resetSourcesToDefaults(); backupAlertMessage = "已重置为内置源，可使用“撤销上次书源重置”恢复。" }
+                    catch { backupAlertMessage = "未重置书源：\(error.localizedDescription)" }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将替换全部导入和自定义书源。成功保存原列表快照后才会重置。")
             }
             .alert("确认清理离线缓存？", isPresented: $showClearAlert) {
                 Button("立即清理", role: .destructive) {
@@ -198,14 +243,17 @@ struct SettingsView: View {
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
-                    let accessed = url.startAccessingSecurityScopedResource()
-                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                    if let content = try? String(contentsOf: url, encoding: .utf8) {
+                    backupTask?.cancel()
+                    let operation = UUID(); backupOperationID = operation
+                    backupTask = Task {
                         do {
-                            let res = try storage.restoreFromBackupJSON(content)
-                            backupAlertMessage = "文件恢复成功！已导入 \(res.booksCount) 本藏书、\(res.sourcesCount) 个书源及全部阅读进度。"
+                            let content = try await backupExporter.read(url)
+                            guard !Task.isCancelled, operation == backupOperationID else { return }
+                            pendingRestoreJSON = content
+                            showRestoreConfirmation = true
                         } catch {
-                            backupAlertMessage = "备份文件格式无效：\(error.localizedDescription)"
+                            guard !Task.isCancelled, operation == backupOperationID else { return }
+                            backupAlertMessage = "读取备份失败：\(error.localizedDescription)"
                         }
                     }
                 case .failure(let err):
@@ -213,6 +261,35 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private func prepareBackup(share: Bool) {
+        backupTask?.cancel()
+        let operation = UUID(); backupOperationID = operation
+        let payload = storage.makeFullBackupPayload()
+        preparingBackup = true
+        backupTask = Task {
+            do {
+                let result = try await backupExporter.prepare(payload)
+                guard !Task.isCancelled, operation == backupOperationID else { return }
+                preparingBackup = false
+                if share { preparedBackupURL = result.url; showBackupShare = true }
+                else { UIPasteboard.general.string = result.json; backupAlertMessage = "完整备份 JSON 已复制到剪贴板。" }
+            } catch {
+                guard !Task.isCancelled, operation == backupOperationID else { return }
+                preparingBackup = false
+                backupAlertMessage = "生成备份失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func restorePendingBackup() {
+        guard let json = pendingRestoreJSON else { return }
+        pendingRestoreJSON = nil
+        do {
+            let result = try storage.restoreFromBackupJSON(json, sourcePolicy: sourcePolicy, configPolicy: configPolicy)
+            backupAlertMessage = "恢复完成：已处理 \(result.booksCount) 本书和 \(result.sourcesCount) 个书源。"
+        } catch { backupAlertMessage = "备份恢复失败：\(error.localizedDescription)" }
     }
     
     private func calculateCacheSize() {
@@ -231,4 +308,12 @@ struct SettingsView: View {
         storage.clearAllChapterCache()
         calculateCacheSize()
     }
+}
+
+private struct BackupShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

@@ -3,6 +3,7 @@ import SwiftUI
 public struct ChapterListView: View {
     @Environment(\.dismiss) var dismiss
     let bookId: String?
+    let sourceURL: String?
     let chapters: [Chapter]
     let currentIndex: Int
     let onSelectChapter: (Int) -> Void
@@ -13,11 +14,13 @@ public struct ChapterListView: View {
     
     public init(
         bookId: String? = nil,
+        sourceURL: String? = nil,
         chapters: [Chapter],
         currentIndex: Int,
         onSelectChapter: @escaping (Int) -> Void
     ) {
         self.bookId = bookId
+        self.sourceURL = sourceURL
         self.chapters = chapters
         self.currentIndex = currentIndex
         self.onSelectChapter = onSelectChapter
@@ -31,6 +34,10 @@ public struct ChapterListView: View {
             base = chapters.filter { $0.title.localizedCaseInsensitiveContains(searchKeyword) }
         }
         return isReversed ? base.reversed() : base
+    }
+
+    private var cacheIdentity: String {
+        ([bookId ?? "", sourceURL ?? ""] + chapters.map { "\($0.index):\($0.url)" }).joined(separator: "\n")
     }
     
     public var body: some View {
@@ -149,12 +156,17 @@ public struct ChapterListView: View {
                         }
                     }
                     .scrollDismissesKeyboard(.immediately)
-                    .task(id: bookId) {
+                    .task(id: cacheIdentity) {
+                        cachedIndices = []
                         guard let bid = bookId else { return }
                         let cacheDir = StorageManager.shared.cacheDirectoryURL
+                        let source = sourceURL
+                        let currentChapters = chapters
                         let indices = await Task.detached(priority: .userInitiated) {
-                            ChapterContentCache(directory: cacheDir).cachedChapterIndices(bookId: bid)
+                            ChapterContentCache(directory: cacheDir).cachedChapterIndices(bookId: bid, sourceURL: source,
+                                                                                         chapters: currentChapters)
                         }.value
+                        guard !Task.isCancelled else { return }
                         cachedIndices = indices
                     }
                     .onAppear {

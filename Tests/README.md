@@ -60,3 +60,21 @@ Device acceptance: reopen a long paragraph in each paginated mode, reverse-turn 
 and uncached chapter, resize while that chapter loads, adjust each typography profile independently,
 and try all three tap modes. Reverse-turning while listening pauses the new chapter at its landing
 paragraph; resuming speech begins at that paragraph's start. Scroll mode resumes by paragraph.
+
+## Final beta safety, bounded source expressions, and UI regressions (v3.8.0)
+
+FinalDataFlowTests cover generation-bound `BookWriteToken` invalidation after shelf deletion or
+source replacement, non-destructive `loadDefaultSources()` replenishment vs snapshot-backed
+`resetSourcesToDefaults()` and `restoreSourcesFromLastResetSnapshot()`, cross-source backup merges
+that preserve local offline chapter caches and relocate reading progress by chapter title, and
+independent `readerConfigUpdatedAt` timestamps. BackupFileExporterTests verify off-body export and
+stale temporary file cleanup. SpeechLifecycleTests cover `SpeechInterruptionPolicy` so audio
+interruption `.ended` only resumes the exact session that was actively playing when interrupted.
+SourceExpressionTests verify bounded expression evaluation, per-session `java.put/get` isolation,
+step/loop rejection, cancellation, and mixed CSS/JS search list rejection. ReaderRenderWorkTests
+verify paragraph cache reuse across font/viewport changes, coalesced background reflow, and
+source+chapter URL verification for cached chapter badges.
+
+SettingsSafetyUITests (`LegadoReaderUITests`) launch the real application on both iPhone Duo and
+ordinary iPhone simulators to verify non-destructive built-in source replenishment, full-reset
+confirmation, and one-tap undo restoration through the user interface.

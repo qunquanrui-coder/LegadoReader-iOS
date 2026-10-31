@@ -55,15 +55,17 @@ public final class ChapterContentCache {
     }
 
     /// Returns all verified cached chapter indices for a book so directory lists can render O(1) badges without main-thread disk I/O per row.
-    public func cachedChapterIndices(bookId: String, sourceURL: String? = nil) -> Set<Int> {
+    public func cachedChapterIndices(bookId: String, sourceURL: String? = nil, chapters: [Chapter]? = nil) -> Set<Int> {
         let bookDir = directory.appendingPathComponent(bookId, isDirectory: true)
         guard let files = try? FileManager.default.contentsOfDirectory(at: bookDir, includingPropertiesForKeys: nil) else {
             return []
         }
         var indices = Set<Int>()
+        let currentURLs = chapters.map { Dictionary($0.map { ($0.index, $0.url) }, uniquingKeysWith: { first, _ in first }) }
         for file in files where file.pathExtension == "json" {
             guard let idx = Int(file.deletingPathExtension().lastPathComponent) else { continue }
-            if read(bookId: bookId, chapterIndex: idx, sourceURL: sourceURL) != nil {
+            if let currentURLs, currentURLs[idx] == nil { continue }
+            if read(bookId: bookId, chapterIndex: idx, chapterURL: currentURLs?[idx], sourceURL: sourceURL) != nil {
                 indices.insert(idx)
             }
         }

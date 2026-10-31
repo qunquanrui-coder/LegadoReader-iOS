@@ -13,6 +13,7 @@ public struct BookDetailView: View {
     @State private var isCachingFullBook = false
     @State private var fullCacheStatusText: String? = nil
     @State private var cacheTask: Task<Void, Never>? = nil
+    @State private var cacheRunID = UUID()
     @State private var tocTask: Task<Void, Never>? = nil
     /// False when the catalogue was only partially fetched — "全本缓存完成" must not be claimed.
     @State private var isTocComplete: Bool = true
@@ -155,7 +156,7 @@ public struct BookDetailView: View {
                     
                     Button {
                         if isCachingFullBook {
-                            cacheTask?.cancel()
+                            cancelCacheRun()
                             isCachingFullBook = false
                             fullCacheStatusText = "已暂停缓存"
                         } else {
@@ -332,13 +333,13 @@ public struct BookDetailView: View {
         .onDisappear {
             tocTask?.cancel()
             if !isReading {
-                cacheTask?.cancel()
+                cancelCacheRun()
                 isCachingFullBook = false
             }
         }
         .alert("从书架移除《\(book.title)》？", isPresented: $showRemoveAlert) {
             Button("移除并清理缓存", role: .destructive) {
-                cacheTask?.cancel()
+                cancelCacheRun()
                 isCachingFullBook = false
                 fullCacheStatusText = nil
                 storage.removeBookFromShelf(book)
@@ -356,6 +357,7 @@ public struct BookDetailView: View {
         .sheet(isPresented: $showAllChapters) {
             ChapterListView(
                 bookId: shelfBook?.id ?? book.id,
+                sourceURL: book.sourceUrl,
                 chapters: chapters,
                 currentIndex: shelfBook?.currentChapterIndex ?? book.currentChapterIndex,
                 onSelectChapter: { idx in
@@ -390,7 +392,8 @@ public struct BookDetailView: View {
     private func addCurrentBookToShelf() {
         book = storage.addBookToShelf(book)
         if !chapters.isEmpty, loadedTocSourceUrl == book.sourceUrl, loadedTocBookUrl == book.bookUrl {
-            storage.saveCachedToc(for: book, chapters: chapters, complete: isTocComplete)
+            storage.saveCachedToc(for: book, chapters: chapters, complete: isTocComplete,
+                                  writeToken: storage.bookWriteToken(for: book))
         }
     }
 
@@ -410,7 +413,9 @@ public struct BookDetailView: View {
         let bookId = book.id
         let bookUrl = book.bookUrl
         
-        cacheTask?.cancel()
+        cancelCacheRun()
+        let runID = cacheRunID
+        let writeToken = storage.bookWriteToken(for: book)
         cacheTask = Task {
             var completed = 0
             let chunkSize = 6
@@ -430,7 +435,7 @@ public struct BookDetailView: View {
                                 let content = try await ChapterContentLoader.shared.load(chapter: ch, source: source,
                                                                                        referer: bookUrl, nextChapterURL: nextURL)
                                 try Task.checkCancellation()
-                                return StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: content)
+                                return StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: content, writeToken: writeToken)
                             } catch { return false }
                         }
                     }
@@ -441,13 +446,16 @@ public struct BookDetailView: View {
                 completed += savedCount
                 let doneNow = completed
                 let pct = Int(Double(doneNow) / Double(max(1, total)) * 100.0)
+                guard !Task.isCancelled, storage.acceptsBookWrite(writeToken) else { return }
                 await MainActor.run {
+                    guard self.cacheRunID == runID, !Task.isCancelled else { return }
                     self.fullCacheStatusText = "正在全本缓存 \(doneNow)/\(total) 章 (\(pct)%)"
                 }
             }
             guard !Task.isCancelled else { return }
             let savedTotal = completed
             await MainActor.run {
+                guard self.cacheRunID == runID, !Task.isCancelled, storage.acceptsBookWrite(writeToken) else { return }
                 self.isCachingFullBook = false
                 if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
                                                        tocComplete: tocCompleteSnapshot) {
@@ -461,12 +469,19 @@ public struct BookDetailView: View {
         }
     }
     
+    private func cancelCacheRun() {
+        cacheRunID = UUID()
+        cacheTask?.cancel()
+        cacheTask = nil
+    }
+
     private func loadChapters() {
         tocTask?.cancel()
         isLoadingChapters = true
         errorMessage = nil
         
         let requestedBook = book
+        let writeToken = storage.bookWriteToken(for: requestedBook)
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == requestedBook.sourceUrl })
             ?? BookSource(bookSourceName: requestedBook.sourceName, bookSourceUrl: requestedBook.sourceUrl)
         
@@ -477,7 +492,7 @@ public struct BookDetailView: View {
                                             loadedBookUrl: loadedTocBookUrl,
                                             currentSourceUrl: requestedBook.sourceUrl,
                                             currentBookUrl: requestedBook.bookUrl) {
-            cacheTask?.cancel()
+            cancelCacheRun()
             isCachingFullBook = false
             fullCacheStatusText = nil
             chapters = []
@@ -516,7 +531,7 @@ public struct BookDetailView: View {
                     } else {
                         self.chapters = result.chapters
                         self.book.totalChapters = result.chapters.count
-                        self.storage.saveCachedToc(for: self.book, chapters: result.chapters, complete: result.complete)
+                        self.storage.saveCachedToc(for: self.book, chapters: result.chapters, complete: result.complete, writeToken: writeToken)
                     }
                     self.isLoadingChapters = false
                 }

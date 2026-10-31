@@ -45,6 +45,15 @@ public final class ChapterContentLoader {
 
     public func load(chapter: Chapter, source: BookSource, referer: String?,
                      nextChapterURL: String? = nil) async throws -> CompleteChapterContent {
+        try await LegadoJSEngine.shared.withSession(source: source) {
+            let result = try await loadInSession(chapter: chapter, source: source, referer: referer, nextChapterURL: nextChapterURL)
+            try LegadoJSEngine.shared.throwIfSessionFailed()
+            return result
+        }
+    }
+
+    private func loadInSession(chapter: Chapter, source: BookSource, referer: String?,
+                               nextChapterURL: String?) async throws -> CompleteChapterContent {
         var requestedURL = chapter.url
         var previousURL = referer
         var visited = Set<String>()

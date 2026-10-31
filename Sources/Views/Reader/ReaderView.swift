@@ -89,6 +89,10 @@ public struct ReaderView: View {
     /// Cached paragraphs of the current chapter — rebuilt only when content or purify/convert config changes,
     /// instead of re-running regex splitting & Chinese conversion on every SwiftUI render.
     @State private var formattedParagraphs: [String] = []
+    @State private var paragraphCache = ReaderParagraphCache()
+    @State private var reflowQueue = ReaderReflowQueue()
+    @State private var cacheRunID = UUID()
+    @State private var bookWriteToken: BookWriteToken?
     /// Cached screen-sized pages for horizontal / Duo modes — rebuilt only when paragraphs, viewport, or font config changes.
     @State private var readerPages: [ReaderPage] = []
     private var paginatedPages: [[PaginatedParagraph]] { readerPages.map { $0.items } }
@@ -108,7 +112,9 @@ public struct ReaderView: View {
         if readingAreaSize.width > 0 && readingAreaSize.height > 0 {
             // New content can require a different fallback even when the window hasn't resized.
             updateReaderViewport(readingAreaSize, force: true)
-        } else { rebuildLayout() }
+        } else {
+            formattedParagraphs = paragraphCache.paragraphs(from: currentContent, config: storage.readerConfig)
+        }
     }
 
     private var spineWidth: CGFloat { storage.readerConfig.effectiveShowDuoSpine ? 18 : 1 }
@@ -121,6 +127,11 @@ public struct ReaderView: View {
         guard size.width > 0, size.height > 0 else { return }
         let changed = abs(size.width - readingAreaSize.width) > 1 || abs(size.height - readingAreaSize.height) > 1
         guard changed || force || !readingLayoutReady else { return }
+        if changed && !force && readingLayoutReady {
+            scheduleReaderReflow(size)
+            return
+        }
+        reflowQueue.cancel()
         // Suppress outgoing-view callbacks before replacing/reflowing its content.
         isRestoringPosition = true
         progressSaver.pending?.cancel()
@@ -138,6 +149,40 @@ public struct ReaderView: View {
         pageViewportSize = CGSize(width: readingLayout == .spread ? (size.width - spineWidth) / 2 : size.width,
                                   height: max(0, size.height - 22))
         rebuildLayout()
+        finishReaderLayout()
+    }
+
+    private func scheduleReaderReflow(_ size: CGSize) {
+        let chapterURL = currentChapter?.url
+        let text = currentContent
+        let anchor = layoutRestoration.anchor ?? ReaderTextAnchor(chapterURL: chapterURL ?? "",
+            paragraphIndex: currentParagraphIndex, characterOffset: currentCharacterOffset)
+        isRestoringPosition = true
+        progressSaver.pending?.cancel()
+        progressSaver.pending = nil
+        layoutRestoration.begin(anchor)
+        targetRestoreParagraph = anchor.paragraphIndex
+        let config = storage.readerConfig.applyingTypography(for: ReaderLayoutPolicy.typographyProfile(availableWidth: size.width))
+        let layout = ReaderLayoutPolicy.presentation(size: size, preferred: config.effectivePageTurnMode,
+            autoSpread: config.effectiveAutoDuoSpread, fontSize: config.fontSize, spineWidth: spineWidth)
+        let viewport = CGSize(width: layout == .spread ? (size.width - spineWidth) / 2 : size.width,
+                              height: max(0, size.height - 22))
+        let work = ReaderPageWork(size: size, viewport: viewport, presentation: layout, config: config,
+            paragraphs: formattedParagraphs,
+            title: currentChapter.map { config.effectiveChineseConversion.convert($0.title) } ?? "")
+        reflowQueue.request(work) { finished, pages in
+            guard self.currentChapter?.url == chapterURL, self.currentContent == text,
+                  self.bookWriteToken.map({ self.storage.acceptsBookWrite($0) }) ?? true else { return }
+            self.readingAreaSize = finished.size
+            self.readingLayout = finished.presentation
+            self.pageViewportSize = finished.viewport
+            self.readerPages = pages
+            self.visibleParagraphIndices.removeAll()
+            self.finishReaderLayout()
+        }
+    }
+
+    private func finishReaderLayout() {
         if readingLayout != .scroll && !formattedParagraphs.isEmpty && readerPages.isEmpty {
             readingLayout = .scroll
         }
@@ -164,7 +209,8 @@ public struct ReaderView: View {
     }
 
     private func rebuildLayout() {
-        formattedParagraphs = ChapterTextFormatter.paragraphs(from: currentContent, config: storage.readerConfig)
+        formattedParagraphs = paragraphCache.paragraphs(from: currentContent, config: storage.readerConfig)
+        guard readingLayout != .scroll else { readerPages = []; return }
         let title = currentChapter.map { storage.readerConfig.effectiveChineseConversion.convert($0.title) } ?? ""
         readerPages = ReaderPaginator.paginate(paragraphs: formattedParagraphs, chapterTitle: title,
                                                style: pageStyle, viewport: pageViewportSize)
@@ -347,6 +393,8 @@ public struct ReaderView: View {
             initializeReader()
         }
         .onDisappear {
+            reflowQueue.cancel()
+            cacheRunID = UUID()
             saveProgress(force: true)
             // A dismissed reader must never commit a late load into shared progress or speech.
             // Invalidate identities as well as cancelling: transports may complete despite cancellation.
@@ -379,6 +427,11 @@ public struct ReaderView: View {
                 saveProgress(force: true)
             }
         }
+        .onReceive(storage.$bookshelf) { shelf in
+            if bookWriteToken != nil, !shelf.contains(where: { $0.id == book.id || ($0.title == book.title && $0.author == book.author) }) {
+                dismiss()
+            }
+        }
         .onChange(of: storage.readerConfig) { config in
             if let previous = lastFormattingConfig,
                previous.effectiveChineseConversion != config.effectiveChineseConversion
@@ -391,6 +444,7 @@ public struct ReaderView: View {
         .sheet(isPresented: $showChapterList) {
             ChapterListView(
                 bookId: book.id,
+                sourceURL: book.sourceUrl,
                 chapters: chapters,
                 currentIndex: currentChapterIndex,
                 onSelectChapter: { newIndex in
@@ -403,6 +457,8 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceSheet(currentBook: book) { newBook in
+                reflowQueue.cancel()
+                cacheRunID = UUID()
                 chapterLoadTask?.cancel()
                 loadTokens.beginChapterLoad()
                 prefetchTask?.cancel()
@@ -986,6 +1042,7 @@ public struct ReaderView: View {
 
             if isCachingChapters {
                 Button {
+                    cacheRunID = UUID()
                     activeCacheTask?.cancel()
                     isCachingChapters = false
                     cacheProgressText = "已暂停缓存"
@@ -1278,6 +1335,8 @@ public struct ReaderView: View {
     }
 
     private func initializeReader() {
+        reflowQueue.cancel()
+        cacheRunID = UUID()
         chapterTurnBackward = nil
         chapterLanding.cancel()
         tocLoadTask?.cancel()
@@ -1295,6 +1354,8 @@ public struct ReaderView: View {
         errorMessage = nil
 
         storage.markBookAsRecentlyRead(book)
+        let writeToken = storage.bookWriteToken(for: requestedBook)
+        bookWriteToken = writeToken
 
         let source = storage.bookSources.first(where: { $0.bookSourceUrl == book.sourceUrl })
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
@@ -1315,7 +1376,8 @@ public struct ReaderView: View {
                 let result = try await LegadoParser.shared.fetchToc(bookUrl: requestedBook.bookUrl, source: source)
                 try Task.checkCancellation()
                 await MainActor.run {
-                    guard self.loadTokens.isCurrentTocLoad(loadID), self.book.bookUrl == requestedBook.bookUrl else { return }
+                    guard self.loadTokens.isCurrentTocLoad(loadID), self.book.bookUrl == requestedBook.bookUrl,
+                          self.storage.acceptsBookWrite(writeToken) else { return }
                     if result.chapters.isEmpty {
                         self.errorMessage = "当前书源未能解析出目录，请点击「切换书源」"
                         self.isLoading = false
@@ -1323,7 +1385,7 @@ public struct ReaderView: View {
                     }
                     self.applyToc(result.chapters, consumeRelocation: true)
                     self.isTocComplete = result.complete
-                    self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
+                    self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete, writeToken: writeToken)
                     self.loadCurrentChapterContent()
                     if !result.complete {
                         self.showTOCNotice("目录可能不完整（已获取 \(result.chapters.count) 章）")
@@ -1404,6 +1466,7 @@ public struct ReaderView: View {
     /// Silently refreshes the TOC when the reader opened from the persisted snapshot.
     /// Failures keep the offline copy and never surface an error banner.
     private func refreshTocInBackground(book requestedBook: Book, source: BookSource, loadID: UUID) {
+        let writeToken = storage.bookWriteToken(for: requestedBook)
         tocRefreshTask?.cancel()
         tocRefreshTask = Task {
             do {
@@ -1411,7 +1474,7 @@ public struct ReaderView: View {
                 try Task.checkCancellation()
                 guard !result.chapters.isEmpty else { return }
                 await MainActor.run {
-                    guard self.loadTokens.isCurrentTocLoad(loadID),
+                    guard self.loadTokens.isCurrentTocLoad(loadID), self.storage.acceptsBookWrite(writeToken),
                           TocUpdatePolicy.matchesRequest(currentSourceUrl: self.book.sourceUrl,
                                                          currentBookUrl: self.book.bookUrl,
                                                          requestedSourceUrl: requestedBook.sourceUrl,
@@ -1421,7 +1484,7 @@ public struct ReaderView: View {
                     else { return }
                     self.isTocComplete = result.complete
                     let chapterChanged = self.applyToc(result.chapters)
-                    self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete)
+                    self.storage.saveCachedToc(for: requestedBook, chapters: result.chapters, complete: result.complete, writeToken: writeToken)
                     if chapterChanged {
                         self.loadCurrentChapterContent()
                     } else {
@@ -1438,6 +1501,7 @@ public struct ReaderView: View {
                                pageTurnBackward: Bool? = nil) {
         guard newIndex >= 0 && newIndex < chapters.count else { return }
         guard newIndex != currentChapterIndex else { return }
+        reflowQueue.cancel()
         chapterTurnBackward = pageTurnBackward
         // If this book is being read aloud, stop the old chapter's audio before the new
         // chapter becomes current; otherwise stale audio would keep writing its paragraph
@@ -1475,6 +1539,7 @@ public struct ReaderView: View {
         chapterLoadTask?.cancel()
         let loadID = loadTokens.beginChapterLoad()
         let requestedBook = book
+        let writeToken = storage.bookWriteToken(for: requestedBook)
 
         if !forceRefresh, let cached = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index,
                                                                chapterURL: chapter.url, sourceURL: book.sourceUrl) {
@@ -1505,11 +1570,11 @@ public struct ReaderView: View {
 
                 await MainActor.run {
                     guard self.loadTokens.isCurrentChapterLoad(loadID), self.currentChapter?.url == chapter.url,
-                          self.book.bookUrl == requestedBook.bookUrl else { return }
+                          self.book.bookUrl == requestedBook.bookUrl, self.storage.acceptsBookWrite(writeToken) else { return }
                     self.applyChapterContent(content.text)
                     self.loadedContentChapterURL = chapter.url
                     self.isLoading = false
-                    self.storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: chapter.index, content: content)
+                    self.storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: chapter.index, content: content, writeToken: writeToken)
                     self.restorePageFromParagraphIfNeeded()
                     self.saveProgress(force: true)
                     self.setupSpeechCallbacks()
@@ -1588,6 +1653,7 @@ public struct ReaderView: View {
 
         let nextCh = chapters[nextIdx]
         let requestedBook = book
+        let writeToken = storage.bookWriteToken(for: requestedBook)
         guard !storage.isChapterCached(bookId: book.id, chapterIndex: nextCh.index,
                                        chapterURL: nextCh.url, sourceURL: book.sourceUrl) else { return }
         let followingURL = nextIdx + 1 < chapters.count ? chapters[nextIdx + 1].url : nil
@@ -1599,7 +1665,7 @@ public struct ReaderView: View {
             if let content = try? await ChapterContentLoader.shared.load(chapter: nextCh, source: source,
                                                                         referer: requestedBook.bookUrl, nextChapterURL: followingURL),
                !Task.isCancelled {
-                storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: nextCh.index, content: content)
+                storage.saveChapterCache(bookId: requestedBook.id, chapterIndex: nextCh.index, content: content, writeToken: writeToken)
             }
         }
     }
@@ -1632,24 +1698,27 @@ public struct ReaderView: View {
             ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
         let bookId = book.id
         let bookUrl = book.bookUrl
+        let writeToken = storage.bookWriteToken(for: book)
 
         showHUD = false
         isCachingChapters = true
         cacheProgressText = "正在高速缓存 0/\(total) 章..."
 
         activeCacheTask?.cancel()
+        let runID = UUID()
+        cacheRunID = runID
         activeCacheTask = Task {
             var completed = 0
             let batchSize = 6
             for chunkStart in stride(from: 0, to: total, by: batchSize) {
-                guard !Task.isCancelled else { break }
+                guard !Task.isCancelled, StorageManager.shared.acceptsBookWrite(writeToken) else { break }
                 let chunkEnd = min(total, chunkStart + batchSize)
                 let slice = Array(targetChapters[chunkStart..<chunkEnd])
 
                 let savedCount = await withTaskGroup(of: Bool.self) { group -> Int in
                     for ch in slice {
                         group.addTask {
-                            guard !Task.isCancelled else { return false }
+                            guard !Task.isCancelled, StorageManager.shared.acceptsBookWrite(writeToken) else { return false }
                             if StorageManager.shared.isChapterCached(bookId: bookId, chapterIndex: ch.index,
                                                                       chapterURL: ch.url, sourceURL: source.bookSourceUrl) { return true }
                             let nextURL = ch.index + 1 < completeTOC.count ? completeTOC[ch.index + 1].url : nil
@@ -1657,7 +1726,7 @@ public struct ReaderView: View {
                                 let content = try await ChapterContentLoader.shared.load(chapter: ch, source: source,
                                                                                        referer: bookUrl, nextChapterURL: nextURL)
                                 try Task.checkCancellation()
-                                return StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: content)
+                                return StorageManager.shared.saveChapterCache(bookId: bookId, chapterIndex: ch.index, content: content, writeToken: writeToken)
                             } catch { return false }
                         }
                     }
@@ -1665,16 +1734,21 @@ public struct ReaderView: View {
                     for await success in group { if success { saved += 1 } }
                     return saved
                 }
+                guard !Task.isCancelled else { return }
                 completed += savedCount
                 let currentDone = completed
                 let pct = Int(Double(currentDone) / Double(max(1, total)) * 100.0)
                 await MainActor.run {
+                    guard self.cacheRunID == runID, !Task.isCancelled,
+                          self.storage.acceptsBookWrite(writeToken) else { return }
                     self.cacheProgressText = "已成功缓存 \(currentDone)/\(total) 章 (\(pct)%)"
                 }
             }
             guard !Task.isCancelled else { return }
             let savedTotal = completed
             await MainActor.run {
+                guard self.cacheRunID == runID, !Task.isCancelled,
+                      self.storage.acceptsBookWrite(writeToken) else { return }
                 self.isCachingChapters = false
                 if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
                                                        tocComplete: tocCompleteSnapshot) {
@@ -1687,7 +1761,7 @@ public struct ReaderView: View {
             }
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             await MainActor.run {
-                if !self.isCachingChapters {
+                if self.cacheRunID == runID, !Task.isCancelled, !self.isCachingChapters {
                     self.cacheProgressText = nil
                 }
             }
@@ -1708,6 +1782,7 @@ public struct ReaderView: View {
         let liveParagraph = liveSpokenParagraph
         let paraIdx = liveParagraph ?? anchor?.paragraphIndex ?? currentParagraphIndex
         let offset = liveParagraph != nil ? 0 : (anchor?.characterOffset ?? currentCharacterOffset)
+        let writeToken = bookWriteToken
 
         let commitSave = {
             StorageManager.shared.updateBookProgress(
@@ -1718,7 +1793,8 @@ public struct ReaderView: View {
                 chapterTitle: chTitle,
                 totalChapters: totalCh,
                 paragraphIndex: paraIdx,
-                characterOffset: offset
+                characterOffset: offset,
+                writeToken: writeToken
             )
         }
 

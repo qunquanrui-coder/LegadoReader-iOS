@@ -142,9 +142,11 @@ public enum ReaderPaginator {
         }
 
         for (index, paragraph) in paragraphs.enumerated() where !paragraph.isEmpty {
+            if Task.isCancelled { return [] }
             var remaining = paragraph[...]
             var offset = 0
             while !remaining.isEmpty {
+                if Task.isCancelled { return [] }
                 let hasContent = title != nil || !items.isEmpty
                 let gap = hasContent ? style.paragraphSpacing : 0
                 let availableHeight = height - usedHeight - gap

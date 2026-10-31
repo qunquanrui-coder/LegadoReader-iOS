@@ -2,6 +2,17 @@ import XCTest
 @testable import LegadoReader
 
 final class ChapterContentCacheTests: XCTestCase {
+    func testCacheBadgesUseTheSameSourceAndChapterURLAsActualReads() throws {
+        let cache = ChapterContentCache(directory: try temporaryDirectory())
+        XCTAssertTrue(cache.save(content(), bookId: "book", chapterIndex: 2))
+        let current = [Chapter(index: 2, title: "当前章", url: content().chapterURL)]
+        XCTAssertEqual(cache.cachedChapterIndices(bookId: "book", sourceURL: content().sourceURL, chapters: current), [2])
+        XCTAssertTrue(cache.cachedChapterIndices(bookId: "book", sourceURL: "https://other.invalid", chapters: current).isEmpty)
+        let drifted = [Chapter(index: 2, title: "插入后的另一章", url: "https://fixture.invalid/other.html")]
+        XCTAssertTrue(cache.cachedChapterIndices(bookId: "book", sourceURL: content().sourceURL, chapters: drifted).isEmpty)
+        XCTAssertTrue(cache.cachedChapterIndices(bookId: "book", sourceURL: content().sourceURL, chapters: []).isEmpty)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -51,6 +51,7 @@ jobs:
             -project LegadoReader.xcodeproj \
             -scheme LegadoReader \
             -destination "platform=iOS Simulator,id=$DUO_SIMULATOR_ID" \
+            -only-testing:LegadoReaderTests \
             -parallel-testing-enabled NO \
             -derivedDataPath ./TestDerivedData \
             -resultBundlePath ./TestResults-Duo.xcresult \
@@ -62,9 +63,34 @@ jobs:
             -project LegadoReader.xcodeproj \
             -scheme LegadoReader \
             -destination "platform=iOS Simulator,id=$STANDARD_SIMULATOR_ID" \
+            -only-testing:LegadoReaderTests \
             -parallel-testing-enabled NO \
             -derivedDataPath ./TestDerivedData \
             -resultBundlePath ./TestResults-iPhone.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test App source reset and undo on iPhone Duo
+        run: |
+          xcodebuild test \
+            -project LegadoReader.xcodeproj \
+            -scheme LegadoReader \
+            -destination "platform=iOS Simulator,id=$DUO_SIMULATOR_ID" \
+            -only-testing:LegadoReaderUITests \
+            -parallel-testing-enabled NO \
+            -derivedDataPath ./TestDerivedData \
+            -resultBundlePath ./TestResults-UI-Duo.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test App source reset and undo on ordinary iPhone
+        run: |
+          xcodebuild test \
+            -project LegadoReader.xcodeproj \
+            -scheme LegadoReader \
+            -destination "platform=iOS Simulator,id=$STANDARD_SIMULATOR_ID" \
+            -only-testing:LegadoReaderUITests \
+            -parallel-testing-enabled NO \
+            -derivedDataPath ./TestDerivedData \
+            -resultBundlePath ./TestResults-UI-iPhone.xcresult \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload Test Results

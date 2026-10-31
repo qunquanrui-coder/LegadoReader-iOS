@@ -33,13 +33,76 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         public var book: Book
         public var chapters: [Chapter]
         public var chapterIndex: Int
+        public let writeToken: BookWriteToken
     }
     @Published public private(set) var context: ReadingContext?
-    private var detachedAdvanceTask: Task<Void, Never>?
+    private(set) var detachedAdvanceTask: Task<Void, Never>?
+    private let storage: StorageManager
+    private let usesSystemAudio: Bool
+    typealias ChapterLoader = (Chapter, BookSource, String, String?) async throws -> CompleteChapterContent
+    private let chapterLoader: ChapterLoader
+    private var playbackID = UUID()
+    private var paragraphWorkID = UUID()
+    private var interruptionPolicy = SpeechInterruptionPolicy()
+
+    private struct WorkToken {
+        let playback: UUID
+        let paragraph: UUID
+        let stopCount: Int
+        let contextIdentity: String?
+        let bookWrite: BookWriteToken?
+    }
+
+    private static func identity(_ context: ReadingContext?) -> String? {
+        guard let context else { return nil }
+        let chapterURL = context.chapters.indices.contains(context.chapterIndex)
+            ? context.chapters[context.chapterIndex].url : ""
+        return [context.book.id, context.book.sourceUrl, context.book.bookUrl,
+                String(context.chapterIndex), chapterURL].joined(separator: "\n")
+    }
+
+    private func workToken() -> WorkToken {
+        WorkToken(playback: playbackID, paragraph: paragraphWorkID, stopCount: sessionStopCount,
+                  contextIdentity: Self.identity(context), bookWrite: context?.writeToken)
+    }
+
+    private func accepts(_ token: WorkToken) -> Bool {
+        token.playback == playbackID && token.paragraph == paragraphWorkID
+            && token.stopCount == sessionStopCount && token.contextIdentity == Self.identity(context)
+            && (token.bookWrite.map { storage.acceptsBookWrite($0) } ?? true)
+    }
     
     public func setContext(book: Book, chapters: [Chapter], chapterIndex: Int) {
-        guard !chapters.isEmpty else { return }
-        context = ReadingContext(book: book, chapters: chapters, chapterIndex: chapterIndex)
+        guard chapters.indices.contains(chapterIndex) else { return }
+        if let old = context, old.book.id == book.id, old.book.sourceUrl == book.sourceUrl,
+           old.book.bookUrl == book.bookUrl, old.chapterIndex == chapterIndex,
+           old.chapters.indices.contains(chapterIndex), old.chapters[chapterIndex].url == chapters[chapterIndex].url {
+            // Retain the original write generation: deletion/re-addition must not revive this session.
+            context = ReadingContext(book: book, chapters: chapters, chapterIndex: chapterIndex,
+                                     writeToken: old.writeToken)
+            return
+        }
+        if context != nil {
+            if isSpeaking { stop() }
+            else {
+                detachedAdvanceTask?.cancel()
+                detachedAdvanceTask = nil
+                stopCurrentPlaybackOnly()
+            }
+        }
+        context = ReadingContext(book: book, chapters: chapters, chapterIndex: chapterIndex,
+                                 writeToken: storage.bookWriteToken(for: book))
+    }
+
+    /// Called before a book is removed. Stop its detached work as well as the visible player.
+    @discardableResult
+    public func stopIfReading(book: Book) -> Bool {
+        guard let current = context?.book,
+              current.id == book.id || (current.title == book.title && current.author == book.author) else { return false }
+        stop()
+        context = nil
+        detachReader()
+        return true
     }
     
     /// Called by the reader page when it is closed: callbacks referencing the closed page are dropped,
@@ -57,7 +120,8 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         return true
     }
     
-    private func handleChapterFinished() {
+    private func handleChapterFinished(token: WorkToken? = nil) {
+        guard isSpeaking, token.map({ accepts($0) }) ?? true else { return }
         renewBackgroundTaskAssertion()
         startKeepAliveAudio()
         if let callback = onChapterFinished {
@@ -68,21 +132,23 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func saveDetachedProgress(paragraphIndex: Int) {
-        guard let ctx = context, ctx.chapterIndex < ctx.chapters.count else { return }
-        StorageManager.shared.updateBookProgress(
+        guard isSpeaking, let ctx = context, ctx.chapters.indices.contains(ctx.chapterIndex),
+              storage.acceptsBookWrite(ctx.writeToken) else { return }
+        storage.updateBookProgress(
             bookId: ctx.book.id,
             bookTitle: ctx.book.title,
             bookAuthor: ctx.book.author,
             chapterIndex: ctx.chapterIndex,
             chapterTitle: ctx.chapters[ctx.chapterIndex].title,
             totalChapters: ctx.chapters.count,
-            paragraphIndex: paragraphIndex
+            paragraphIndex: paragraphIndex,
+            writeToken: ctx.writeToken
         )
     }
     
     /// Loads the next chapter (cache first, then network) and continues reading — no reader page required
     private func advanceChapterDetached() {
-        guard let baseCtx = context else { stop(); return }
+        guard isSpeaking, let baseCtx = context, storage.acceptsBookWrite(baseCtx.writeToken) else { stop(); return }
         let nextIdx = baseCtx.chapterIndex + 1
         guard nextIdx < baseCtx.chapters.count else { stop(); return }
         let chapter = baseCtx.chapters[nextIdx]
@@ -90,9 +156,10 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         
         isLoadingAudio = true
         detachedAdvanceTask?.cancel()
+        let token = workToken()
         detachedAdvanceTask = Task { [weak self] in
             guard let self = self else { return }
-            let storage = StorageManager.shared
+            let storage = self.storage
             var text: String? = storage.getCachedChapter(bookId: book.id, chapterIndex: chapter.index, chapterURL: chapter.url, sourceURL: book.sourceUrl)
             if text == nil {
                 let source = await MainActor.run {
@@ -100,16 +167,21 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                         ?? BookSource(bookSourceName: book.sourceName, bookSourceUrl: book.sourceUrl)
                 }
                 let nextURL = nextIdx + 1 < baseCtx.chapters.count ? baseCtx.chapters[nextIdx + 1].url : nil
-                if let content = try? await ChapterContentLoader.shared.load(chapter: chapter, source: source,
-                                                                           referer: book.bookUrl, nextChapterURL: nextURL),
+                if let content = try? await self.chapterLoader(chapter, source, book.bookUrl, nextURL),
                    !Task.isCancelled {
-                    storage.saveChapterCache(bookId: book.id, chapterIndex: chapter.index, content: content)
-                    text = content.text
+                    let accepted = await MainActor.run {
+                        guard self.accepts(token), self.isSpeaking else { return false }
+                        _ = storage.saveChapterCache(bookId: book.id, chapterIndex: chapter.index,
+                                                     content: content, writeToken: baseCtx.writeToken)
+                        return self.accepts(token)
+                    }
+                    if accepted { text = content.text }
                 }
             }
             guard !Task.isCancelled else { return }
             let loadedText = text
             await MainActor.run {
+                guard self.accepts(token), self.isSpeaking else { return }
                 self.isLoadingAudio = false
                 // A reader page may have re-attached while we were loading — let it take over
                 if let callback = self.onChapterFinished {
@@ -134,6 +206,9 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     
     private let synthesizer = AVSpeechSynthesizer()
     private var audioPlayer: AVAudioPlayer?
+    private var audioPlayerToken: WorkToken?
+    private var activeUtterance: AVSpeechUtterance?
+    private var utteranceToken: WorkToken?
     /// Continuous silent audio keep-alive player that prevents iOS from suspending the app
     /// between paragraphs or during async online neural TTS / chapter network fetches when screen is locked
     private var keepAlivePlayer: AVAudioPlayer?
@@ -149,15 +224,30 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     private var sleepTimer: Timer?
     private var isStoppingManually = false
     
-    private override init() {
+    private override convenience init() {
+        self.init(testing: false)
+    }
+
+    /// Tests use an isolated store and inert audio transport while exercising real notifications,
+    /// queued paragraph callbacks and detached chapter loading.
+    init(testing: Bool, storage: StorageManager = .shared, chapterLoader: ChapterLoader? = nil) {
+        self.storage = storage
+        usesSystemAudio = !testing
+        self.chapterLoader = chapterLoader ?? { chapter, source, referer, nextURL in
+            try await ChapterContentLoader.shared.load(chapter: chapter, source: source,
+                                                      referer: referer, nextChapterURL: nextURL)
+        }
         super.init()
         synthesizer.delegate = self
-        setupRemoteTransportControls()
-        setupSystemNotifications()
+        if !testing {
+            setupRemoteTransportControls()
+            setupSystemNotifications()
+        }
     }
     
     // MARK: - Audio Session & Background Keep-Alive Engine
     private func configureAudioSession() {
+        guard usesSystemAudio else { return }
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
@@ -175,6 +265,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func startKeepAliveAudio() {
+        guard usesSystemAudio else { return }
         configureAudioSession()
         if let kp = keepAlivePlayer {
             if !kp.isPlaying {
@@ -198,6 +289,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func renewBackgroundTaskAssertion() {
+        guard usesSystemAudio else { return }
         #if canImport(UIKit)
         let app = UIApplication.shared
         let oldId = backgroundTaskId
@@ -215,6 +307,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func endBackgroundTaskAssertion() {
+        guard usesSystemAudio else { return }
         #if canImport(UIKit)
         if backgroundTaskId != .invalid {
             UIApplication.shared.endBackgroundTask(backgroundTaskId)
@@ -241,11 +334,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         commandCenter.pauseCommand.isEnabled = true
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
-            if self.isSpeaking && !self.isPaused {
-                self.togglePlayPause(paragraphs: self.paragraphs, currentIndex: self.currentParagraphIndex)
-                return .success
-            }
-            return .commandFailed
+            return self.pauseByUser() ? .success : .commandFailed
         }
         
         commandCenter.togglePlayPauseCommand.isEnabled = true
@@ -287,7 +376,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         #endif
     }
     
-    @objc private func handleAudioInterruption(_ notification: Notification) {
+    @objc func handleAudioInterruption(_ notification: Notification) {
         #if os(iOS)
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
@@ -295,21 +384,28 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         
         switch type {
         case .began:
+            interruptionPolicy.began(wasPlaying: isSpeaking && !isPaused,
+                                     session: sessionStopCount, playback: playbackID)
             if isSpeaking && !isPaused {
                 isPaused = true
                 audioPlayer?.pause()
                 if synthesizer.isSpeaking {
                     synthesizer.pauseSpeaking(at: .word)
                 }
+                stopKeepAliveAudio()
+                endBackgroundTaskAssertion()
                 updateNowPlayingInfo()
             }
         case .ended:
-            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
-            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-            if options.contains(.shouldResume), isSpeaking, isPaused {
+            let options = (userInfo[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
+            if interruptionPolicy.consume(systemAllowsResume: options.contains(.shouldResume),
+                session: sessionStopCount, playback: playbackID, isSpeaking: isSpeaking, isPaused: isPaused) {
                 isPaused = false
+                guard usesSystemAudio else { return }
                 configureAudioSession()
                 startKeepAliveAudio()
+                renewBackgroundTaskAssertion()
                 if let player = audioPlayer {
                     player.play()
                 } else if synthesizer.isPaused {
@@ -343,6 +439,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func updateNowPlayingInfo() {
+        guard usesSystemAudio else { return }
         #if os(iOS)
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = currentChapterTitle.isEmpty ? currentBookTitle : currentChapterTitle
@@ -361,6 +458,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     public func startReading(paragraphs: [String], fromIndex: Int = 0, bookTitle: String? = nil,
                              chapterTitle: String? = nil, initiallyPaused: Bool = false) {
         guard !paragraphs.isEmpty else { return }
+        if let context, !storage.acceptsBookWrite(context.writeToken) { stop(); return }
         if let bt = bookTitle, !bt.isEmpty { self.currentBookTitle = bt }
         if let ct = chapterTitle, !ct.isEmpty { self.currentChapterTitle = ct }
         
@@ -387,9 +485,11 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     public func togglePlayPause(paragraphs: [String], currentIndex: Int) {
+        interruptionPolicy.cancel()
         if isSpeaking {
             if isPaused {
                 isPaused = false
+                guard usesSystemAudio else { return }
                 configureAudioSession()
                 startKeepAliveAudio()
                 renewBackgroundTaskAssertion()
@@ -417,6 +517,21 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
             startReading(paragraphs: paragraphs, fromIndex: currentIndex)
         }
     }
+
+    /// A remote pause received while an interruption already paused audio still expresses
+    /// a user intent, and must cancel the system's later automatic-resume permission.
+    @discardableResult
+    public func pauseByUser() -> Bool {
+        interruptionPolicy.cancel()
+        guard isSpeaking else { return false }
+        isPaused = true
+        audioPlayer?.pause()
+        if synthesizer.isSpeaking { synthesizer.pauseSpeaking(at: .word) }
+        stopKeepAliveAudio()
+        endBackgroundTaskAssertion()
+        updateNowPlayingInfo()
+        return true
+    }
     
     public func stop() {
         sessionStopCount += 1
@@ -432,7 +547,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         prefetchedAudio.removeAll()
         cancelSleepTimer()
         #if os(iOS)
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        if usesSystemAudio { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
         #endif
     }
     
@@ -455,6 +570,12 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func stopCurrentPlaybackOnly() {
+        playbackID = UUID()
+        paragraphWorkID = UUID()
+        interruptionPolicy.cancel()
+        activeUtterance = nil
+        utteranceToken = nil
+        audioPlayerToken = nil
         isStoppingManually = true
         speakingTask?.cancel()
         speakingTask = nil
@@ -471,12 +592,14 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     public func skipPrevious() {
+        interruptionPolicy.cancel()
         guard isSpeaking, !paragraphs.isEmpty else { return }
         let prev = max(0, currentParagraphIndex - 1)
         startReading(paragraphs: paragraphs, fromIndex: prev)
     }
     
     public func skipNext() {
+        interruptionPolicy.cancel()
         guard isSpeaking, !paragraphs.isEmpty else { return }
         if currentParagraphIndex + 1 < paragraphs.count {
             startReading(paragraphs: paragraphs, fromIndex: currentParagraphIndex + 1)
@@ -528,13 +651,18 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func speakParagraph(at index: Int) {
+        guard isSpeaking else { return }
+        paragraphWorkID = UUID()
+        let token = workToken()
+        guard accepts(token) else { return }
         renewBackgroundTaskAssertion()
         startKeepAliveAudio()
         
         guard index >= 0 && index < paragraphs.count else {
             DispatchQueue.main.async {
+                guard self.accepts(token), self.isSpeaking else { return }
                 self.isLoadingAudio = false
-                self.handleChapterFinished()
+                self.handleChapterFinished(token: token)
             }
             return
         }
@@ -549,6 +677,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         }
         
         DispatchQueue.main.async {
+            guard self.accepts(token), self.isSpeaking else { return }
             self.currentParagraphIndex = index
             self.updateNowPlayingInfo()
             if let callback = self.onParagraphChanged {
@@ -557,6 +686,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                 self.saveDetachedProgress(paragraphIndex: index)
             }
         }
+        guard usesSystemAudio else { return }
         
         let voice = selectedVoice
         let rate = speechRateMultiplier
@@ -564,22 +694,38 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         speakingTask?.cancel()
         speakingTask = Task {
             // 1. Check if already pre-synthesized in cache
-            var mp3Data: Data? = await MainActor.run { self.prefetchedAudio.removeValue(forKey: index) }
+            var mp3Data: Data? = await MainActor.run {
+                guard self.accepts(token), !Task.isCancelled else { return nil }
+                return self.prefetchedAudio.removeValue(forKey: index)
+            }
             
             if mp3Data == nil {
-                await MainActor.run { self.isLoadingAudio = true }
+                let mayStart = await MainActor.run {
+                    guard self.accepts(token), self.isSpeaking, !Task.isCancelled else { return false }
+                    self.isLoadingAudio = true
+                    return true
+                }
+                guard mayStart else { return }
                 mp3Data = try? await EdgeNeuralTTS.shared.synthesize(text: rawText, voice: voice, rateMultiplier: rate)
-                await MainActor.run { self.isLoadingAudio = false }
+                await MainActor.run {
+                    guard self.accepts(token), !Task.isCancelled else { return }
+                    self.isLoadingAudio = false
+                }
             }
             
             guard !Task.isCancelled else { return }
             
             // Start prefetching the NEXT 2 paragraphs in the background while current paragraph plays!
-            self.triggerPrefetchQueue(startingAfter: index, voice: voice, rate: rate)
+            let mayContinue = await MainActor.run {
+                guard self.accepts(token), self.isSpeaking else { return false }
+                self.triggerPrefetchQueue(startingAfter: index, voice: voice, rate: rate)
+                return true
+            }
+            guard mayContinue else { return }
             
             if let data = mp3Data, data.count > 256 {
                 await MainActor.run {
-                    guard self.isSpeaking, !self.isPaused else { return }
+                    guard self.accepts(token), self.isSpeaking, !self.isPaused, !Task.isCancelled else { return }
                     self.configureAudioSession()
                     self.startKeepAliveAudio()
                     do {
@@ -587,6 +733,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                         player.delegate = self
                         player.prepareToPlay()
                         self.audioPlayer = player
+                        self.audioPlayerToken = token
                         if !player.play() {
                             self.speakWithLocalEnhancedVoice(rawText, rate: rate)
                         }
@@ -597,7 +744,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
             } else {
                 // Offline fallback: use highest-quality local iOS Enhanced/Premium Siri voice
                 await MainActor.run {
-                    guard self.isSpeaking, !self.isPaused else { return }
+                    guard self.accepts(token), self.isSpeaking, !self.isPaused, !Task.isCancelled else { return }
                     self.configureAudioSession()
                     self.startKeepAliveAudio()
                     self.speakWithLocalEnhancedVoice(rawText, rate: rate)
@@ -607,6 +754,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func triggerPrefetchQueue(startingAfter index: Int, voice: NeuralVoiceActor, rate: Float) {
+        let token = workToken()
         let candidates = [index + 1, index + 2].filter { $0 >= 0 && $0 < paragraphs.count }
         guard !candidates.isEmpty else { return }
         
@@ -614,11 +762,14 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         prefetchTask = Task {
             for nextIndex in candidates {
                 guard !Task.isCancelled else { return }
+                let mayContinue = await MainActor.run { self.accepts(token) && self.isSpeaking }
+                guard mayContinue else { return }
                 let alreadyCached = await MainActor.run { self.prefetchedAudio[nextIndex] != nil }
                 if alreadyCached { continue }
                 
                 let nextText: String = await MainActor.run {
-                    guard nextIndex < self.paragraphs.count else { return "" }
+                    guard self.accepts(token), self.isSpeaking, !Task.isCancelled,
+                          nextIndex < self.paragraphs.count else { return "" }
                     return self.paragraphs[nextIndex]
                         .replacingOccurrences(of: "　", with: "")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -628,6 +779,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                 if let data = try? await EdgeNeuralTTS.shared.synthesize(text: nextText, voice: voice, rateMultiplier: rate),
                    !Task.isCancelled {
                     await MainActor.run {
+                        guard self.accepts(token), self.isSpeaking, !Task.isCancelled else { return }
                         self.prefetchedAudio[nextIndex] = data
                     }
                 }
@@ -636,12 +788,18 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     }
     
     private func speakWithLocalEnhancedVoice(_ text: String, rate: Float) {
+        // A failed online player must not later finish over the local fallback's utterance.
+        audioPlayer?.stop()
+        audioPlayer = nil
+        audioPlayerToken = nil
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.selectBestLocalChineseVoice()
         let baseRate = AVSpeechUtteranceDefaultSpeechRate * 0.96
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, baseRate * rate))
         utterance.pitchMultiplier = 1.03
         utterance.postUtteranceDelay = 0.12
+        activeUtterance = utterance
+        utteranceToken = workToken()
         synthesizer.speak(utterance)
     }
     
@@ -658,17 +816,21 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     // MARK: - AVAudioPlayerDelegate (Online Neural Audio Finished)
     public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         guard player === audioPlayer else { return }
+        guard let token = audioPlayerToken, accepts(token) else { return }
         guard !isStoppingManually, isSpeaking, !isPaused else { return }
         advanceToNextParagraphOrChapter()
     }
     
     // MARK: - AVSpeechSynthesizerDelegate (Offline Fallback Finished)
     public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        guard utterance === activeUtterance, let token = utteranceToken, accepts(token) else { return }
         guard !isStoppingManually, isSpeaking, !isPaused else { return }
         advanceToNextParagraphOrChapter()
     }
     
     private func advanceToNextParagraphOrChapter() {
+        let token = workToken()
+        guard accepts(token), isSpeaking else { return }
         renewBackgroundTaskAssertion()
         startKeepAliveAudio()
         let nextIndex = currentParagraphIndex + 1
@@ -676,7 +838,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
             speakParagraph(at: nextIndex)
         } else {
             DispatchQueue.main.async {
-                self.handleChapterFinished()
+                self.handleChapterFinished(token: token)
             }
         }
     }

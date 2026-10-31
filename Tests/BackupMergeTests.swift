@@ -194,11 +194,12 @@ final class BackupMergeTests: XCTestCase {
         )
         XCTAssertEqual(result.bookshelf.count, 1)
         XCTAssertEqual(result.bookshelf[0].id, local.id)
-        XCTAssertEqual(result.bookshelf[0].currentChapterIndex, 55)
-        XCTAssertEqual(result.bookshelf[0].currentParagraphIndex, 3)
+        XCTAssertEqual(result.bookshelf[0].currentChapterIndex, 10)
+        XCTAssertEqual(result.bookshelf[0].currentParagraphIndex, 0)
+        XCTAssertEqual(result.bookshelf[0].sourceUrl, local.sourceUrl)
     }
 
-    func testMergeReaderConfigPreservesLocalTypographyAndCustomPurifyRules() {
+    func testMergeReaderConfigPreservesChosenSnapshotWithoutRevivingOlderRules() {
         var local = ReaderConfig.default
         local.theme = .pureBlack
         local.setTypography(ReaderTypography(fontSize: 18, lineSpacing: 7), for: .compact)
@@ -216,7 +217,7 @@ final class BackupMergeTests: XCTestCase {
         XCTAssertEqual(merged.typography(for: .wide), ReaderTypography(fontSize: 24, lineSpacing: 14))
         XCTAssertEqual(merged.effectiveTapMode, .leftHanded)
         XCTAssertTrue(merged.effectivePurifyRules.contains("广告A"))
-        XCTAssertTrue(merged.effectivePurifyRules.contains("广告B"))
+        XCTAssertFalse(merged.effectivePurifyRules.contains("广告B"))
     }
 
     func testResolveLastReadBookIdPrefersNewerReadingSession() {

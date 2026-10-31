@@ -7,17 +7,36 @@ public enum SourceSearchPolicy {
         guard (source.bookSourceType ?? 0) == 0 else { return "暂不支持此书源类型" }
         guard let url = source.searchUrl, !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let list = source.ruleSearch?.bookList, !list.isEmpty else { return "缺少搜索规则" }
-        let wholeRule = list.trimmingCharacters(in: .whitespacesAndNewlines)
-        if wholeRule.hasPrefix("<js>") || wholeRule.hasPrefix("@js:") {
-            return "暂不支持 JavaScript 搜索列表规则"
+        guard !supportedSearchListAlternatives(list).isEmpty else {
+            return list.lowercased().contains("@js:") || list.lowercased().contains("<js")
+                ? "暂不支持 JavaScript 搜索列表规则（含 CSS/JS 混合列表）" : "暂不支持此搜索列表规则"
         }
-        let alternatives = list.components(separatedBy: "||")
-        if alternatives.allSatisfy({ rule in
-            let rule = rule.trimmingCharacters(in: .whitespacesAndNewlines)
-            return rule.hasPrefix("$") || rule.hasPrefix("@json:") || rule.hasPrefix("@js:")
-                || rule.hasPrefix("<js>") || rule.hasPrefix("//") || rule.hasPrefix("@XPath:")
-        }) { return "暂不支持此搜索列表规则" }
-        return nil
+        let fields = [source.ruleSearch?.name, source.ruleSearch?.author, source.ruleSearch?.intro,
+                      source.ruleSearch?.coverUrl, source.ruleSearch?.bookUrl, source.ruleSearch?.lastChapter]
+        for field in fields {
+            if let reason = LegadoJSEngine.shared.unsupportedRuleReason(field) { return reason }
+        }
+        return LegadoJSEngine.shared.unsupportedURLTemplateReason(url)
+    }
+
+    /// Only selector alternatives the list parser can actually execute are eligible.
+    /// A CSS prefix does not make a trailing JavaScript list transform supported.
+    public static func supportedSearchListAlternatives(_ rule: String) -> [String] {
+        guard rule.utf8.count <= 65_536 else { return [] }
+        return rule.components(separatedBy: "||").filter { candidate in
+            var candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if candidate.lowercased().hasPrefix("@css:") { candidate = String(candidate.dropFirst(5)).trimmingCharacters(in: .whitespaces) }
+            if candidate.hasPrefix("@@") { candidate = String(candidate.dropFirst(2)) }
+            if candidate.hasPrefix("-") || candidate.hasPrefix("+") { candidate = String(candidate.dropFirst()) }
+            let lower = candidate.lowercased()
+            guard !candidate.isEmpty, !lower.contains("@js:"), !lower.contains("<js"), !lower.contains("</js"),
+                  !candidate.contains(";"), !candidate.contains("{"), !candidate.contains("}"),
+                  !lower.hasPrefix("$"), !lower.hasPrefix("@json:"), !lower.hasPrefix("//"),
+                  !lower.hasPrefix("@xpath:"), !lower.hasPrefix("java."),
+                  !["result", "undefined", "null", "true", "false", "[]", "{}"].contains(lower),
+                  let first = candidate.first, first.isLetter || ".#*[:".contains(first) else { return false }
+            return true
+        }
     }
 
     private static func normalized(_ text: String) -> String {
@@ -42,10 +61,15 @@ public enum SourceSearchPolicy {
 
 public enum SourceSearchService {
     public static func search(source: BookSource, keyword: String) async throws -> [Book] {
-        try Task.checkCancellation()
-        let (html, url) = try await NetworkManager.shared.executeSearch(source: source, keyword: keyword)
-        try Task.checkCancellation()
-        return try LegadoParser.shared.parseSearch(html: html, baseUrl: url, source: source)
+        if let reason = SourceSearchPolicy.unsupportedReason(source) { throw SourceScriptError.unsupported(reason) }
+        return try await LegadoJSEngine.shared.withSession(source: source) {
+            try Task.checkCancellation()
+            let (html, url) = try await NetworkManager.shared.executeSearch(source: source, keyword: keyword)
+            try Task.checkCancellation()
+            let books = try LegadoParser.shared.parseSearch(html: html, baseUrl: url, source: source)
+            try LegadoJSEngine.shared.throwIfSessionFailed()
+            return books
+        }
     }
 }
 

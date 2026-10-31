@@ -8,6 +8,7 @@ public struct SourceManagerView: View {
     @State private var speedTestStatus = ""
     @State private var validationTask: Task<Void, Never>?
     @State private var validationID = UUID()
+    @State private var showResetConfirmation = false
     
     private var filteredSources: [BookSource] {
         if searchSourceText.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -61,9 +62,9 @@ public struct SourceManagerView: View {
                         Button {
                             cancelValidation()
                             storage.loadDefaultSources()
-                            speedTestStatus = "已恢复内置精选书源"
+                            speedTestStatus = "已补充内置精选书源，保留导入和自定义规则"
                         } label: {
-                            Text("重置精选源")
+                            Text("补充内置源")
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
@@ -71,6 +72,21 @@ public struct SourceManagerView: View {
                                 .foregroundColor(.indigo)
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
+                        Menu {
+                            Button("完整重置书源…", role: .destructive) { showResetConfirmation = true }
+                            if storage.hasSourceResetSnapshot {
+                                Button("撤销上次重置") {
+                                    cancelValidation()
+                                    do {
+                                        let count = try storage.restoreSourcesFromLastResetSnapshot()
+                                        speedTestStatus = "已恢复重置前的 \(count) 个书源"
+                                    } catch { speedTestStatus = "恢复失败：\(error.localizedDescription)" }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle").frame(minWidth: 32, minHeight: 36)
+                        }
+                        .accessibilityLabel("书源重置与恢复")
                     }
                 }
                 .padding(14)
@@ -161,6 +177,18 @@ public struct SourceManagerView: View {
                 }
             }
             .onDisappear { cancelValidation() }
+            .alert("完整重置全部书源？", isPresented: $showResetConfirmation) {
+                Button("重置并保存恢复快照", role: .destructive) {
+                    cancelValidation()
+                    do {
+                        _ = try storage.resetSourcesToDefaults()
+                        speedTestStatus = "已完整重置；可在菜单中撤销上次重置"
+                    } catch { speedTestStatus = "重置未完成：\(error.localizedDescription)" }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("这会替换所有已导入和自定义规则。重置前会先保存恢复快照；只想补回内置源，请使用“补充内置源”。")
+            }
             .sheet(isPresented: $showingImportSheet) {
                 ImportSourceSheet()
             }

@@ -15,7 +15,7 @@ public class LegadoParser {
         var clean = chainRule.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.isEmpty { return roots }
         
-        if clean.hasPrefix("@css:") {
+        if clean.lowercased().hasPrefix("@css:") {
             clean = String(clean.dropFirst(5)).trimmingCharacters(in: .whitespaces)
         } else if clean.hasPrefix("@@") {
             clean = String(clean.dropFirst(2)).trimmingCharacters(in: .whitespaces)
@@ -261,18 +261,14 @@ public class LegadoParser {
         var result = extractedValues.joined(separator: "\n")
         
         if let pattern = regexPattern {
-            result = result.replacingOccurrences(of: pattern, with: regexReplacement, options: .regularExpression)
+            guard let replaced = LegadoJSEngine.shared.replacePattern(pattern, in: result, with: regexReplacement) else { return nil }; result = replaced
         }
         
         // Pipe extracted selector result through any trailing <js>...</js> or @js: scripts
         for script in jsScripts {
-            if let jsOut = LegadoJSEngine.shared.evaluate(
-                script: script,
-                result: result,
-                baseUrl: baseUrl.absoluteString
-            ) {
-                result = jsOut
-            }
+            guard let jsOut = LegadoJSEngine.shared.evaluate(
+                script: script, result: result, baseUrl: baseUrl.absoluteString) else { return nil }
+            result = jsOut
         }
         
         // Strip Legado trailing options like ,{'webView':true}
@@ -296,6 +292,15 @@ public class LegadoParser {
     
     // MARK: - Search Parsing
     public func parseSearch(html: String, baseUrl: URL, source: BookSource) throws -> [Book] {
+        try LegadoJSEngine.shared.withSession(source: source) {
+            let result = try parseSearchInSession(html: html, baseUrl: baseUrl, source: source)
+            try LegadoJSEngine.shared.throwIfSessionFailed()
+            return result
+        }
+    }
+
+    private func parseSearchInSession(html: String, baseUrl: URL, source: BookSource) throws -> [Book] {
+        if let reason = SourceSearchPolicy.unsupportedReason(source) { throw SourceScriptError.unsupported(reason) }
         let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
         guard let ruleSearch = source.ruleSearch,
               let listRule = ruleSearch.bookList,
@@ -304,7 +309,7 @@ public class LegadoParser {
         }
         
         var elements: [Element] = []
-        for alt in listRule.components(separatedBy: "||") {
+        for alt in SourceSearchPolicy.supportedSearchListAlternatives(listRule) {
             let found = stepSelect(from: [doc], chainRule: alt)
             if !found.isEmpty {
                 elements = found
@@ -349,6 +354,12 @@ public class LegadoParser {
     
     // MARK: - Resolve Separate TOC URL if Present on Book Info Page
     public func resolveTocUrl(html: String, baseUrl: URL, source: BookSource) -> String? {
+        LegadoJSEngine.shared.withSession(source: source) {
+            resolveTocUrlInSession(html: html, baseUrl: baseUrl, source: source)
+        }
+    }
+
+    private func resolveTocUrlInSession(html: String, baseUrl: URL, source: BookSource) -> String? {
         guard let tocRule = source.ruleBookInfo?.tocUrl, !tocRule.isEmpty else {
             return nil
         }
@@ -403,7 +414,16 @@ public class LegadoParser {
     /// Fetches and parses the whole catalogue, following `ruleToc.nextTocUrl` (or a
     /// best-effort "下一页" / rel=next link) across paginated catalogues, then re-indexes
     /// every chapter so indices always equal positions in the returned array.
-    public func fetchToc(
+    public func fetchToc(bookUrl: String, source: BookSource, maxPages: Int = 50,
+                         fetchPage: @escaping TocFetchPage = { try await NetworkManager.shared.fetchString(from: $0, referer: $1) }) async throws -> TocLoadResult {
+        try await LegadoJSEngine.shared.withSession(source: source) {
+            let result = try await fetchTocInSession(bookUrl: bookUrl, source: source, maxPages: maxPages, fetchPage: fetchPage)
+            try LegadoJSEngine.shared.throwIfSessionFailed()
+            return result
+        }
+    }
+
+    private func fetchTocInSession(
         bookUrl: String,
         source: BookSource,
         maxPages: Int = 50,
@@ -614,6 +634,14 @@ public class LegadoParser {
 
     // MARK: - TOC (Table of Contents) Parsing + Smart Fallback
     public func parseToc(html: String, baseUrl: URL, source: BookSource) throws -> [Chapter] {
+        try LegadoJSEngine.shared.withSession(source: source) {
+            let result = try parseTocInSession(html: html, baseUrl: baseUrl, source: source)
+            try LegadoJSEngine.shared.throwIfSessionFailed()
+            return result
+        }
+    }
+
+    private func parseTocInSession(html: String, baseUrl: URL, source: BookSource) throws -> [Chapter] {
         let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
         var chapters: [Chapter] = []
         
@@ -724,6 +752,14 @@ public class LegadoParser {
     
     // MARK: - Chapter Content Parsing + Smart Fallback
     public func parseContent(html: String, baseUrl: URL, source: BookSource) throws -> String {
+        try LegadoJSEngine.shared.withSession(source: source) {
+            let result = try parseContentInSession(html: html, baseUrl: baseUrl, source: source)
+            try LegadoJSEngine.shared.throwIfSessionFailed()
+            return result
+        }
+    }
+
+    private func parseContentInSession(html: String, baseUrl: URL, source: BookSource) throws -> String {
         let doc = try SwiftSoup.parse(html, baseUrl.absoluteString)
         
         if let ruleContent = source.ruleContent?.content, !ruleContent.isEmpty {
@@ -738,11 +774,25 @@ public class LegadoParser {
                 ?? extractValue(from: doc, rule: ruleContent, baseUrl: baseUrl) {
                 var raw = extracted
                 if let replaceRegex = source.ruleContent?.replaceRegex, !replaceRegex.isEmpty {
-                    let cleanPattern = replaceRegex.hasPrefix("##") ? String(replaceRegex.dropFirst(2)) : replaceRegex
-                    let parts = cleanPattern.components(separatedBy: "##")
-                    if let pattern = parts.first, !pattern.isEmpty {
-                        let rep = parts.count > 1 ? parts[1] : ""
-                        raw = raw.replacingOccurrences(of: pattern, with: rep, options: .regularExpression)
+                    let split = LegadoJSEngine.shared.splitSelectorAndJS(replaceRegex)
+                    if !split.scripts.isEmpty {
+                        for script in split.scripts {
+                            guard let replaced = LegadoJSEngine.shared.evaluate(script: script, result: raw, baseUrl: baseUrl.absoluteString) else {
+                                try LegadoJSEngine.shared.throwIfSessionFailed()
+                                throw ChapterLoadingError.missingContent
+                            }
+                            raw = replaced
+                        }
+                    } else {
+                        let cleanPattern = replaceRegex.hasPrefix("##") ? String(replaceRegex.dropFirst(2)) : replaceRegex
+                        let parts = cleanPattern.components(separatedBy: "##")
+                        if let pattern = parts.first, !pattern.isEmpty {
+                            guard let replaced = LegadoJSEngine.shared.replacePattern(pattern, in: raw, with: parts.count > 1 ? parts[1] : "") else {
+                                try LegadoJSEngine.shared.throwIfSessionFailed()
+                                throw ChapterLoadingError.missingContent
+                            }
+                            raw = replaced
+                        }
                     }
                 }
                 let cleaned = cleanNovelText(raw)

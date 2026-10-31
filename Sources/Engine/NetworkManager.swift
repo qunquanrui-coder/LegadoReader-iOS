@@ -48,6 +48,12 @@ public class NetworkManager {
     }
     
     public func executeSearch(source: BookSource, keyword: String) async throws -> (String, URL) {
+        try await LegadoJSEngine.shared.withSession(source: source) {
+            try await executeSearchInSession(source: source, keyword: keyword)
+        }
+    }
+
+    private func executeSearchInSession(source: BookSource, keyword: String) async throws -> (String, URL) {
         guard let rawSearchUrl = source.searchUrl, !rawSearchUrl.isEmpty else {
             throw URLError(.badURL)
         }
@@ -58,7 +64,7 @@ public class NetworkManager {
         let cleanBaseUrl = sanitizeUrlString(source.bookSourceUrl)
         
         let replaced: String
-        if rawSearchUrl.contains("@js:") || rawSearchUrl.contains("<js>") || rawSearchUrl.contains("java.") {
+        if rawSearchUrl.lowercased().contains("@js:") || rawSearchUrl.lowercased().contains("<js>") || rawSearchUrl.contains("java.") || LegadoJSEngine.shared.hasInlineExpressions(rawSearchUrl) {
             replaced = LegadoJSEngine.shared.renderUrlTemplate(
                 rawSearchUrl,
                 baseUrl: cleanBaseUrl,
@@ -73,6 +79,8 @@ public class NetworkManager {
                 .replacingOccurrences(of: "{page}", with: "1")
         }
         
+        try LegadoJSEngine.shared.throwIfSessionFailed()
+        try Task.checkCancellation()
         var urlPart = replaced
         var method = "GET"
         var bodyStr: String?
