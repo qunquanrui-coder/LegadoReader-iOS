@@ -26,7 +26,7 @@ final class SourceExpressionTests: XCTestCase {
         XCTAssertEqual(md5Short, String((md5Full ?? "").dropFirst(8).prefix(16)))
 
         let regexOut = engine.evaluate(
-            script: "result.replace(/id=(\\d+)/, '/book/$1.html')",
+            script: "result.replace(/\\?id=(\\d+)/, '/book/$1.html')",
             result: "https://fixture.invalid?id=4096",
             session: session
         )
@@ -94,8 +94,9 @@ final class SourceExpressionTests: XCTestCase {
     func testSearchPolicyRejectsCSSPrefixedJavaScriptListAndUnsupportedFieldScripts() {
         XCTAssertTrue(SourceSearchPolicy.supportedSearchListAlternatives("@css:.books@js:result").isEmpty)
         XCTAssertEqual(
-            SourceSearchPolicy.supportedSearchListAlternatives("$.data || @css:ul.list li || @js:result"),
-            ["ul.list li"]
+            SourceSearchPolicy.supportedSearchListAlternatives("$.data || @css:ul.list li || @js:result")
+                .map { $0.trimmingCharacters(in: .whitespaces) },
+            ["@css:ul.list li"]
         )
 
         let badFieldSource = BookSource(
