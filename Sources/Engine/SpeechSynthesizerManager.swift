@@ -15,6 +15,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     @Published public var currentParagraphIndex: Int = 0
     @Published public var speechRateMultiplier: Float = 1.0
     @Published public var selectedVoice: NeuralVoiceActor = .yunxi
+    @Published public var expressiveStyle: SpeechExpressiveStyle = .multiRoleDrama
     @Published public var sleepTimerMinutes: Int? = nil
     /// Incremented by every full `stop()`. Async chapter-load completions compare this value
     /// against the one captured when the switch started, so a stop during loading (including
@@ -240,6 +241,18 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         super.init()
         synthesizer.delegate = self
         if !testing {
+            if let savedVoiceRaw = UserDefaults.standard.string(forKey: "LegadoReader_TTSVoice_v3_9"),
+               let savedVoice = NeuralVoiceActor(rawValue: savedVoiceRaw) {
+                selectedVoice = savedVoice
+            }
+            if let savedStyleRaw = UserDefaults.standard.string(forKey: "LegadoReader_TTSStyle_v3_9"),
+               let savedStyle = SpeechExpressiveStyle(rawValue: savedStyleRaw) {
+                expressiveStyle = savedStyle
+            }
+            let savedRate = UserDefaults.standard.float(forKey: "LegadoReader_TTSRate_v3_9")
+            if savedRate >= 0.5 && savedRate <= 2.5 {
+                speechRateMultiplier = savedRate
+            }
             setupRemoteTransportControls()
             setupSystemNotifications()
         }
@@ -443,7 +456,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         #if os(iOS)
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = currentChapterTitle.isEmpty ? currentBookTitle : currentChapterTitle
-        info[MPMediaItemPropertyArtist] = "\(currentBookTitle) · \(selectedVoice.shortName)"
+        info[MPMediaItemPropertyArtist] = "\(currentBookTitle) · \(selectedVoice.shortName) · \(expressiveStyle.shortName)"
         let total = max(1, paragraphs.count)
         let current = min(currentParagraphIndex + 1, total)
         info[MPMediaItemPropertyAlbumTitle] = "第 \(current)/\(total) 段"
@@ -611,6 +624,9 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     
     public func setRate(_ multiplier: Float) {
         speechRateMultiplier = multiplier
+        if usesSystemAudio {
+            UserDefaults.standard.set(multiplier, forKey: "LegadoReader_TTSRate_v3_9")
+        }
         prefetchedAudio.removeAll()
         if isSpeaking && !isPaused {
             startReading(paragraphs: paragraphs, fromIndex: currentParagraphIndex)
@@ -619,9 +635,25 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
     
     public func setVoice(_ voice: NeuralVoiceActor) {
         selectedVoice = voice
+        if usesSystemAudio {
+            UserDefaults.standard.set(voice.rawValue, forKey: "LegadoReader_TTSVoice_v3_9")
+        }
         prefetchedAudio.removeAll()
         if isSpeaking && !isPaused {
             startReading(paragraphs: paragraphs, fromIndex: currentParagraphIndex)
+        }
+    }
+
+    public func setExpressiveStyle(_ style: SpeechExpressiveStyle) {
+        expressiveStyle = style
+        if usesSystemAudio {
+            UserDefaults.standard.set(style.rawValue, forKey: "LegadoReader_TTSStyle_v3_9")
+        }
+        prefetchedAudio.removeAll()
+        if isSpeaking && !isPaused {
+            startReading(paragraphs: paragraphs, fromIndex: currentParagraphIndex)
+        } else if isSpeaking {
+            updateNowPlayingInfo()
         }
     }
     
@@ -690,6 +722,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         
         let voice = selectedVoice
         let rate = speechRateMultiplier
+        let style = expressiveStyle
         
         speakingTask?.cancel()
         speakingTask = Task {
@@ -706,7 +739,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                     return true
                 }
                 guard mayStart else { return }
-                mp3Data = try? await EdgeNeuralTTS.shared.synthesize(text: rawText, voice: voice, rateMultiplier: rate)
+                mp3Data = try? await EdgeNeuralTTS.shared.synthesize(text: rawText, voice: voice, rateMultiplier: rate, style: style)
                 await MainActor.run {
                     guard self.accepts(token), !Task.isCancelled else { return }
                     self.isLoadingAudio = false
@@ -718,7 +751,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
             // Start prefetching the NEXT 2 paragraphs in the background while current paragraph plays!
             let mayContinue = await MainActor.run {
                 guard self.accepts(token), self.isSpeaking else { return false }
-                self.triggerPrefetchQueue(startingAfter: index, voice: voice, rate: rate)
+                self.triggerPrefetchQueue(startingAfter: index, voice: voice, rate: rate, style: style)
                 return true
             }
             guard mayContinue else { return }
@@ -753,7 +786,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         }
     }
     
-    private func triggerPrefetchQueue(startingAfter index: Int, voice: NeuralVoiceActor, rate: Float) {
+    private func triggerPrefetchQueue(startingAfter index: Int, voice: NeuralVoiceActor, rate: Float, style: SpeechExpressiveStyle) {
         let token = workToken()
         let candidates = [index + 1, index + 2].filter { $0 >= 0 && $0 < paragraphs.count }
         guard !candidates.isEmpty else { return }
@@ -776,7 +809,7 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
                 }
                 guard !nextText.isEmpty else { continue }
                 
-                if let data = try? await EdgeNeuralTTS.shared.synthesize(text: nextText, voice: voice, rateMultiplier: rate),
+                if let data = try? await EdgeNeuralTTS.shared.synthesize(text: nextText, voice: voice, rateMultiplier: rate, style: style),
                    !Task.isCancelled {
                     await MainActor.run {
                         guard self.accepts(token), self.isSpeaking, !Task.isCancelled else { return }
@@ -794,9 +827,12 @@ public final class SpeechSynthesizerManager: NSObject, ObservableObject, AVSpeec
         audioPlayerToken = nil
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.selectBestLocalChineseVoice()
+        let emotion = expressiveStyle == .flat ? .neutral : NovelEmotionAnalyzer.detectEmotion(clause: text)
+        let prosody = NovelEmotionAnalyzer.prosodySegment(text: text, role: .narration, emotion: emotion)
+        let rateAdjust = 1.0 + Float(prosody.rateDeltaPercent) / 100.0
         let baseRate = AVSpeechUtteranceDefaultSpeechRate * 0.96
-        utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, baseRate * rate))
-        utterance.pitchMultiplier = 1.03
+        utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, baseRate * rate * rateAdjust))
+        utterance.pitchMultiplier = min(1.22, max(0.86, 1.03 + Float(prosody.pitchHz) * 0.015))
         utterance.postUtteranceDelay = 0.12
         activeUtterance = utterance
         utteranceToken = workToken()

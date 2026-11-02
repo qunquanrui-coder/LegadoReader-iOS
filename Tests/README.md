@@ -78,3 +78,11 @@ source+chapter URL verification for cached chapter badges.
 SettingsSafetyUITests (`LegadoReaderUITests`) launch the real application on both iPhone Duo and
 ordinary iPhone simulators to verify non-destructive built-in source replenishment, full-reset
 confirmation, and one-tap undo restoration through the user interface.
+
+## Expressive multi-role drama TTS and novel emotion prosody (v3.9.0)
+
+ExpressiveSpeechTests cover the expanded 10-actor `NeuralVoiceActor` roster (including `zh-CN-YunxiaNeural`,
+regional voices, and `zh-TW` locale tags), `ExpressiveSpeechPlanner` multi-role drama voice casting
+(separating narration, female dialogue, and male dialogue), `NovelEmotionAnalyzer` attribution emotion
+inheritance and clause prosody modulation (`pitch`, `rate`, `volume`), single-voice multi-prosody SSML
+coalescing, XML escaping, and `SpeechSynthesizerManager` expressive style updates.

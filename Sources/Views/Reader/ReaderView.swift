@@ -939,6 +939,33 @@ public struct ReaderView: View {
     private var ttsSettingsControls: some View {
 
         Menu {
+            ForEach(SpeechExpressiveStyle.allCases) { style in
+                Button {
+                    speech.setExpressiveStyle(style)
+                } label: {
+                    HStack {
+                        Text(style.displayName)
+                        if speech.expressiveStyle == style {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "theatermasks.fill")
+                    .font(.system(size: 10))
+                Text(speech.expressiveStyle.shortName)
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.pink.opacity(0.14))
+            .foregroundColor(.pink)
+            .clipShape(Capsule())
+        }
+
+        Menu {
             ForEach(NeuralVoiceActor.allCases) { actor in
                 Button {
                     speech.setVoice(actor)

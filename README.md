@@ -4,9 +4,16 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
-![Release](https://img.shields.io/badge/Release-v3.8.0-brightgreen)
+![Release](https://img.shields.io/badge/Release-v3.9.0-brightgreen)
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 纯净小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（内置 20 个精选书源，支持 HTML/CSS 与受限白名单表达式求值；JSONPath、JavaScript 搜索列表、混合 CSS/JS 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
+
+## v3.9.0 情感剧场听书版（多角色广播剧、小说动态情绪韵律与 10 位特色主播）
+
+- **🎭「旁白 + 男女对话」多角色剧场模式 (`SpeechExpressiveStyle.multiRoleDrama`)**：自动拆分段落中的旁白叙述与引号台词，结合上下文人称与神态描写自动判定男女角色，在单次 WebSocket 会话中为旁白、男主台词、女主台词动态切换专属音色。
+- **📈 小说语境智能情绪调音 (`NovelEmotionAnalyzer`)**：自动识别激昂怒喝（`！`）、疑问质问（`？`）、低语叹息/省略（`……`）、冷笑威严、轻快笑意等情绪线索，按分句动态调节 SSML `pitch` / `rate` / `volume`，离线 Siri 语音同样具备情绪音高起伏。
+- **🎙️ 10 位高表现力神经网络主播 (`NeuralVoiceActor`)**：在云希、晓晓、云健、晓伊、云扬基础上，新增 **云夏（热血动漫少年）**、**晓北（东北幽默女声）**、**晓妮（陕西爽朗女声）**、**晓臻（温柔台湾女声）**、**云哲（温润台湾男声）**。
+- **🎚️ 三档听书情感模式自由切换**：听书悬浮栏支持一键切换「多角色剧场」「单人情感演绎」「平稳标准播读」，并自动记忆主播、情感模式与语速设置。
 
 ## v3.8.0 封测候选版（数据隔离、重置快照与受限规则引擎）
 
@@ -61,14 +68,14 @@
 
 ---
 
-## 📦 最新版本下载 (`v3.8.0` 封测候选版)
+## 📦 最新版本下载 (`v3.9.0` 情感剧场听书版)
 
-前往 [GitHub Releases v3.8.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.8.0) 下载：
+前往 [GitHub Releases v3.9.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.9.0) 下载：
 
 | 安装包 | 适用场景 |
 | :--- | :--- |
-| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.8.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
-| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.8.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
+| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.9.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
+| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.9.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
 
 
 ---
@@ -184,6 +191,7 @@ LegadoReader-iOS/
 
 ## 🗓️ 版本演进记录
 
+- **`v3.9.0`**：情感剧场听书版——新增「旁白 + 男女对话」多角色广播剧模式（自动识别台词与角色性别并在单次连接内分角色合成）、小说语境智能情绪调音（按分句标点与神态描写动态调节音高/语速/音量），主播阵容扩充至 10 位（新增云夏、晓北、晓妮、晓臻、云哲），支持三档情感演绎模式一键切换与持久化记忆。
 - **`v3.8.0`**：封测候选版收尾——新增世代绑定写入令牌 `BookWriteToken`，删书或换源后彻底阻断后台延迟写回与残留听书；区分「补充内置书源」与带确认及快照撤销的「完整重置为内置书源」，并新增双设备 XCUITest UI 自动化验证；跨源备份恢复保留本地离线缓存并按章节标题重定位，阅读配置具备独立修改时间戳，导出备份移出视图渲染路径；系统音频中断仅恢复中断前处于播放态的同一会话；书源表达式升级为带步数/时间预算与会话隔离的受限求值器；阅读器复用分段缓存并后台合并重排，目录缓存标记双键校验。
 - **`v3.6.0`**：支持从章节首屏向前翻回上一章末页/末组双页；分页模式保存段内字符偏移；窄窗口与宽窗口独立记住字号行距；新增左手/右手点击翻页区域。
 - **`v3.5.1`**：单页与 Duo 双页使用原生横向分页控制器，点击与滑动翻页具备明确方向动画与进度保护。

@@ -3,29 +3,527 @@ import Foundation
 public enum NeuralVoiceActor: String, CaseIterable, Codable, Identifiable {
     public var id: String { rawValue }
     case yunxi = "zh-CN-YunxiNeural"
+    case yunxia = "zh-CN-YunxiaNeural"
     case xiaoxiao = "zh-CN-XiaoxiaoNeural"
-    case yunjian = "zh-CN-YunjianNeural"
     case xiaoyi = "zh-CN-XiaoyiNeural"
+    case yunjian = "zh-CN-YunjianNeural"
     case yunyang = "zh-CN-YunyangNeural"
+    case xiaobei = "zh-CN-liaoning-XiaobeiNeural"
+    case xiaoni = "zh-CN-shaanxi-XiaoniNeural"
+    case hsiaochen = "zh-TW-HsiaoChenNeural"
+    case yunjhe = "zh-TW-YunJheNeural"
     
     public var displayName: String {
         switch self {
         case .yunxi: return "云希 · 阳光少年音 (荐)"
+        case .yunxia: return "云夏 · 热血动漫少年 (高情感)"
         case .xiaoxiao: return "晓晓 · 温柔知性女声"
+        case .xiaoyi: return "晓伊 · 灵动甜美少女"
         case .yunjian: return "云健 · 浑厚武侠评书"
-        case .xiaoyi: return "晓伊 · 灵动甜美女声"
-        case .yunyang: return "云扬 · 沉稳播音男声"
+        case .yunyang: return "云扬 · 沉稳旁白男声"
+        case .xiaobei: return "晓北 · 东北幽默女声"
+        case .xiaoni: return "晓妮 · 陕西爽朗女声"
+        case .hsiaochen: return "晓臻 · 温柔台湾女声"
+        case .yunjhe: return "云哲 · 温润台湾男声"
         }
     }
     
     public var shortName: String {
         switch self {
         case .yunxi: return "云希(男)"
+        case .yunxia: return "云夏(燃系)"
         case .xiaoxiao: return "晓晓(女)"
-        case .yunjian: return "云健(评书)"
         case .xiaoyi: return "晓伊(甜美)"
-        case .yunyang: return "云扬(播音)"
+        case .yunjian: return "云健(评书)"
+        case .yunyang: return "云扬(旁白)"
+        case .xiaobei: return "晓北(东北)"
+        case .xiaoni: return "晓妮(陕西)"
+        case .hsiaochen: return "晓臻(台女)"
+        case .yunjhe: return "云哲(台男)"
         }
+    }
+
+    public var isFemale: Bool {
+        switch self {
+        case .xiaoxiao, .xiaoyi, .xiaobei, .xiaoni, .hsiaochen:
+            return true
+        case .yunxi, .yunxia, .yunjian, .yunyang, .yunjhe:
+            return false
+        }
+    }
+
+    public var xmlLang: String {
+        switch self {
+        case .hsiaochen, .yunjhe:
+            return "zh-TW"
+        default:
+            return "zh-CN"
+        }
+    }
+}
+
+public enum SpeechExpressiveStyle: String, CaseIterable, Codable, Identifiable {
+    public var id: String { rawValue }
+    case multiRoleDrama = "drama"
+    case emotionalSingleVoice = "emotional"
+    case flat = "flat"
+
+    public var displayName: String {
+        switch self {
+        case .multiRoleDrama:
+            return "多角色剧场 · 旁白+男女对话 (荐)"
+        case .emotionalSingleVoice:
+            return "单人情感演绎 · 抑扬顿挫"
+        case .flat:
+            return "平稳标准播读"
+        }
+    }
+
+    public var shortName: String {
+        switch self {
+        case .multiRoleDrama:
+            return "剧场分角"
+        case .emotionalSingleVoice:
+            return "情感演绎"
+        case .flat:
+            return "标准平稳"
+        }
+    }
+}
+
+public enum NovelClauseEmotion: String, Equatable {
+    case neutral
+    case excitedOrAngry
+    case questioning
+    case somberOrWhisper
+    case coldOrSolemn
+    case joyfulOrWarm
+}
+
+public enum NovelSpeechRole: Equatable {
+    case narration
+    case maleDialogue
+    case femaleDialogue
+
+    public var isDialogue: Bool {
+        self != .narration
+    }
+}
+
+public struct DramaVoiceCast: Equatable {
+    public let narrator: NeuralVoiceActor
+    public let maleDialogue: NeuralVoiceActor
+    public let femaleDialogue: NeuralVoiceActor
+
+    public static func resolve(primary: NeuralVoiceActor) -> DramaVoiceCast {
+        switch primary {
+        case .yunxi:
+            return DramaVoiceCast(narrator: .yunjian, maleDialogue: .yunxi, femaleDialogue: .xiaoxiao)
+        case .yunxia:
+            return DramaVoiceCast(narrator: .yunjian, maleDialogue: .yunxia, femaleDialogue: .xiaoyi)
+        case .yunjian:
+            return DramaVoiceCast(narrator: .yunjian, maleDialogue: .yunxi, femaleDialogue: .xiaoxiao)
+        case .yunyang:
+            return DramaVoiceCast(narrator: .yunyang, maleDialogue: .yunxi, femaleDialogue: .xiaoxiao)
+        case .xiaoxiao:
+            return DramaVoiceCast(narrator: .xiaoxiao, maleDialogue: .yunxi, femaleDialogue: .xiaoyi)
+        case .xiaoyi:
+            return DramaVoiceCast(narrator: .xiaoxiao, maleDialogue: .yunxi, femaleDialogue: .xiaoyi)
+        case .xiaobei:
+            return DramaVoiceCast(narrator: .xiaobei, maleDialogue: .yunxi, femaleDialogue: .xiaoyi)
+        case .xiaoni:
+            return DramaVoiceCast(narrator: .xiaoni, maleDialogue: .yunxi, femaleDialogue: .xiaoxiao)
+        case .hsiaochen:
+            return DramaVoiceCast(narrator: .hsiaochen, maleDialogue: .yunjhe, femaleDialogue: .xiaoyi)
+        case .yunjhe:
+            return DramaVoiceCast(narrator: .yunjhe, maleDialogue: .yunxi, femaleDialogue: .hsiaochen)
+        }
+    }
+}
+
+public struct ExpressiveProsodySegment: Equatable {
+    public let text: String
+    public let role: NovelSpeechRole
+    public let emotion: NovelClauseEmotion
+    public let pitchHz: Int
+    public let rateDeltaPercent: Int
+    public let volumeDeltaPercent: Int
+}
+
+public struct ExpressiveVoiceTurn: Equatable {
+    public let voice: NeuralVoiceActor
+    public let segments: [ExpressiveProsodySegment]
+
+    public func buildSSML(baseRateMultiplier: Float) -> String {
+        let baseRatePercent = Int(round((baseRateMultiplier - 1.0) * 100.0))
+        let body = segments.map { segment -> String in
+            let pitch = max(-15, min(15, segment.pitchHz))
+            let rate = max(-45, min(75, baseRatePercent + segment.rateDeltaPercent))
+            let volume = max(-25, min(25, segment.volumeDeltaPercent))
+            let pitchStr = pitch >= 0 ? "+\(pitch)Hz" : "\(pitch)Hz"
+            let rateStr = rate >= 0 ? "+\(rate)%" : "\(rate)%"
+            let volStr = volume >= 0 ? "+\(volume)%" : "\(volume)%"
+            let escaped = Self.escapeXML(segment.text)
+            return "<prosody pitch='\(pitchStr)' rate='\(rateStr)' volume='\(volStr)'>\(escaped)</prosody>"
+        }.joined()
+        return "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='\(voice.xmlLang)'><voice name='\(voice.rawValue)'>\(body)</voice></speak>"
+    }
+
+    public static func escapeXML(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&apos;")
+    }
+}
+
+public enum NovelEmotionAnalyzer {
+    private static let femaleCues: [String] = [
+        "她", "少女", "女子", "姑娘", "小姐", "夫人", "娘子", "妇人", "老妇", "婆婆",
+        "姐姐", "妹妹", "师姐", "师妹", "公主", "王妃", "仙子", "丫鬟", "侍女",
+        "红唇", "美眸", "蹙眉", "轻咬", "娇嗔", "柔声", "娇声", "咯咯", "小女子",
+        "本姑娘", "本宫", "妾身", "老身"
+    ]
+
+    private static let maleCues: [String] = [
+        "他", "少年", "青年", "老者", "老头", "大汉", "壮汉", "汉子", "男子", "男人",
+        "公子", "先生", "师兄", "师弟", "老夫", "在下", "老祖", "本座", "小爷",
+        "老子", "朕", "胡须", "朗声", "洪声", "粗声", "瓮声"
+    ]
+
+    private static let excitedOrAngryCues: [String] = [
+        "怒", "喝道", "咆哮", "嘶吼", "大吼", "大喊", "暴喝", "厉喝", "厉声", "尖叫",
+        "惊呼", "骇然", "失声", "滚", "找死", "该死", "可恶", "休想", "杀", "轰", "破开"
+    ]
+
+    private static let somberOrWhisperCues: [String] = [
+        "低声", "轻声", "喃喃", "叹息", "叹了口气", "叹道", "长叹", "苦笑", "凄然",
+        "哽咽", "颤声", "抽泣", "流泪", "悲痛", "悲伤", "幽幽", "微不可察", "耳语",
+        "沙哑", "嘶哑", "低沉", "垂眸", "黯然", "沉默"
+    ]
+
+    private static let coldOrSolemnCues: [String] = [
+        "冷笑", "冷哼", "寒声", "冷冷", "漠然", "沉声", "淡淡", "面无表情", "森然",
+        "杀意", "冰冷", "威严", "不容置疑"
+    ]
+
+    private static let joyfulOrWarmCues: [String] = [
+        "笑道", "微笑", "轻笑", "大笑", "哈哈", "呵呵", "莞尔", "笑眯眯", "欣喜",
+        "狂喜", "惊喜", "温柔", "柔声", "甜笑", "笑吟吟"
+    ]
+
+    private static let questioningCues: [String] = [
+        "难道", "莫非", "怎么可能", "为何", "为什么", "岂有此理", "是谁", "当真", "究竟"
+    ]
+
+    public static func detectDialogueRole(
+        quoteText: String,
+        precedingNarration: String,
+        followingNarration: String,
+        defaultVoice: NeuralVoiceActor
+    ) -> NovelSpeechRole {
+        let selfFemale = ["小女子", "本姑娘", "本宫", "妾身", "老身", "人家"]
+        let selfMale = ["老夫", "在下", "小爷", "本座", "老子", "朕", "小生"]
+        if selfFemale.contains(where: { quoteText.contains($0) }) { return .femaleDialogue }
+        if selfMale.contains(where: { quoteText.contains($0) }) { return .maleDialogue }
+
+        let preWindow = String(precedingNarration.suffix(34))
+        let postWindow = String(followingNarration.prefix(24))
+
+        let preFemaleScore = score(text: preWindow, cues: femaleCues,preferSuffix: true)
+        let preMaleScore = score(text: preWindow, cues: maleCues, preferSuffix: true)
+        if preFemaleScore != preMaleScore {
+            return preFemaleScore > preMaleScore ? .femaleDialogue : .maleDialogue
+        }
+
+        let postFemaleScore = score(text: postWindow, cues: femaleCues, preferSuffix: false)
+        let postMaleScore = score(text: postWindow, cues: maleCues, preferSuffix: false)
+        if postFemaleScore != postMaleScore {
+            return postFemaleScore > postMaleScore ? .femaleDialogue : .maleDialogue
+        }
+
+        return defaultVoice.isFemale ? .femaleDialogue : .maleDialogue
+    }
+
+    private static func score(text: String, cues: [String], preferSuffix: Bool) -> Int {
+        guard !text.isEmpty else { return 0 }
+        var total = 0
+        for cue in cues where text.contains(cue) {
+            total += cue.count >= 2 ? 3 : 2
+            if preferSuffix, let range = text.range(of: cue, options: .backwards) {
+                let distance = text.distance(from: range.upperBound, to: text.endIndex)
+                if distance <= 10 { total += 3 }
+            } else if !preferSuffix, let range = text.range(of: cue) {
+                let distance = text.distance(from: text.startIndex, to: range.lowerBound)
+                if distance <= 10 { total += 3 }
+            }
+        }
+        return total
+    }
+
+    public static func detectEmotion(clause: String, attributionContext: String = "") -> NovelClauseEmotion {
+        let trimmed = clause.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .neutral }
+        let contextWindow = String(attributionContext.suffix(24))
+
+        let hasEllipsis = trimmed.contains("……") || trimmed.contains("...") || trimmed.contains("…")
+        let endsWithQuestion = trimmed.hasSuffix("？") || trimmed.hasSuffix("?") || trimmed.hasSuffix("？”") || trimmed.hasSuffix("?”") || trimmed.hasSuffix("？」")
+        let endsWithExclamation = trimmed.hasSuffix("！") || trimmed.hasSuffix("!") || trimmed.hasSuffix("！”") || trimmed.hasSuffix("!”") || trimmed.hasSuffix("！」")
+
+        if somberOrWhisperCues.contains(where: { trimmed.contains($0) || contextWindow.contains($0) }) {
+            return .somberOrWhisper
+        }
+        if coldOrSolemnCues.contains(where: { trimmed.contains($0) || contextWindow.contains($0) }) {
+            return .coldOrSolemn
+        }
+        if excitedOrAngryCues.contains(where: { trimmed.contains($0) || contextWindow.contains($0) }) {
+            return .excitedOrAngry
+        }
+        if endsWithQuestion || questioningCues.contains(where: { trimmed.contains($0) }) {
+            return .questioning
+        }
+        if joyfulOrWarmCues.contains(where: { trimmed.contains($0) || contextWindow.contains($0) }) {
+            return .joyfulOrWarm
+        }
+        if endsWithExclamation {
+            return .excitedOrAngry
+        }
+        if hasEllipsis {
+            return .somberOrWhisper
+        }
+        return .neutral
+    }
+
+    public static func prosodySegment(text: String, role: NovelSpeechRole, emotion: NovelClauseEmotion) -> ExpressiveProsodySegment {
+        let basePitch = role.isDialogue ? 3 : -1
+        let baseRate = role.isDialogue ? 2 : 0
+        let baseVol = role.isDialogue ? 4 : 0
+
+        switch emotion {
+        case .neutral:
+            return ExpressiveProsodySegment(
+                text: text,
+                role: role,
+                emotion: emotion,
+                pitchHz: basePitch,
+                rateDeltaPercent: baseRate,
+                volumeDeltaPercent: baseVol
+            )
+        case .excitedOrAngry:
+            return ExpressiveProsodySegment(
+                text: text,
+                role: role,
+                emotion: emotion,
+                pitchHz: basePitch + 5,
+                rateDeltaPercent: baseRate + 7,
+                volumeDeltaPercent: baseVol + 10
+            )
+        case .questioning:
+            return ExpressiveProsodySegment(
+                text: text,
+                role: role,
+                emotion: emotion,
+                pitchHz: basePitch + 4,
+                rateDeltaPercent: baseRate + 2,
+                volumeDeltaPercent: baseVol + 4
+            )
+        case .somberOrWhisper:
+            return ExpressiveProsodySegment(
+                text: text,
+                role: role,
+                emotion: emotion,
+                pitchHz: (role.isDialogue ? -3 : -5),
+                rateDeltaPercent: -8,
+                volumeDeltaPercent: -6
+            )
+        case .coldOrSolemn:
+            return ExpressiveProsodySegment(
+                text: text,
+                role: role,
+                emotion: emotion,
+                pitchHz: -4,
+                rateDeltaPercent: -4,
+                volumeDeltaPercent: baseVol + 2
+            )
+        case .joyfulOrWarm:
+            return ExpressiveProsodySegment(
+                text: text,
+                role: role,
+                emotion: emotion,
+                pitchHz: basePitch + 3,
+                rateDeltaPercent: baseRate + 3,
+                volumeDeltaPercent: baseVol + 4
+            )
+        }
+    }
+}
+
+public enum ExpressiveSpeechPlanner {
+    private struct RawSpan {
+        let text: String
+        let isQuoted: Bool
+    }
+
+    public static func plan(
+        paragraph: String,
+        primaryVoice: NeuralVoiceActor,
+        style: SpeechExpressiveStyle,
+        maxTurns: Int = 6
+    ) -> [ExpressiveVoiceTurn] {
+        let clean = paragraph
+            .replacingOccurrences(of: "　", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return [] }
+
+        if style == .flat {
+            let seg = ExpressiveProsodySegment(
+                text: clean,
+                role: .narration,
+                emotion: .neutral,
+                pitchHz: 0,
+                rateDeltaPercent: 0,
+                volumeDeltaPercent: 0
+            )
+            return [ExpressiveVoiceTurn(voice: primaryVoice, segments: [seg])]
+        }
+
+        let spans = splitQuotedSpans(clean)
+        var segments: [ExpressiveProsodySegment] = []
+
+        for idx in spans.indices {
+            let span = spans[idx]
+            let prevNarration = idx > 0 && !spans[idx - 1].isQuoted ? spans[idx - 1].text : ""
+            let nextNarration = idx + 1 < spans.count && !spans[idx + 1].isQuoted ? spans[idx + 1].text : ""
+            let role: NovelSpeechRole
+            let attribution: String
+            if span.isQuoted {
+                role = NovelEmotionAnalyzer.detectDialogueRole(
+                    quoteText: span.text,
+                    precedingNarration: prevNarration,
+                    followingNarration: nextNarration,
+                    defaultVoice: primaryVoice
+                )
+                attribution = prevNarration + " " + nextNarration
+            } else {
+                role = .narration
+                attribution = ""
+            }
+
+            let clauses = splitClauses(span.text)
+            for clause in clauses {
+                let emotion = NovelEmotionAnalyzer.detectEmotion(clause: clause, attributionContext: attribution)
+                segments.append(NovelEmotionAnalyzer.prosodySegment(text: clause, role: role, emotion: emotion))
+            }
+        }
+
+        guard !segments.isEmpty else {
+            return [ExpressiveVoiceTurn(voice: primaryVoice, segments: [
+                ExpressiveProsodySegment(text: clean, role: .narration, emotion: .neutral, pitchHz: 0, rateDeltaPercent: 0, volumeDeltaPercent: 0)
+            ])]
+        }
+
+        let cast = DramaVoiceCast.resolve(primary: primaryVoice)
+        var turns: [ExpressiveVoiceTurn] = []
+        for segment in segments {
+            let targetVoice: NeuralVoiceActor
+            switch style {
+            case .flat, .emotionalSingleVoice:
+                targetVoice = primaryVoice
+            case .multiRoleDrama:
+                switch segment.role {
+                case .narration:
+                    targetVoice = cast.narrator
+                case .maleDialogue:
+                    targetVoice = cast.maleDialogue
+                case .femaleDialogue:
+                    targetVoice = cast.femaleDialogue
+                }
+            }
+            if let last = turns.last, last.voice == targetVoice {
+                turns[turns.count - 1] = ExpressiveVoiceTurn(voice: targetVoice, segments: last.segments + [segment])
+            } else {
+                turns.append(ExpressiveVoiceTurn(voice: targetVoice, segments: [segment]))
+            }
+        }
+
+        let limit = max(1, maxTurns)
+        if turns.count > limit {
+            let head = Array(turns.prefix(limit - 1))
+            let tailSegments = turns.dropFirst(limit - 1).flatMap(\.segments)
+            let tailVoice = turns[limit - 1].voice
+            return head + [ExpressiveVoiceTurn(voice: tailVoice, segments: tailSegments)]
+        }
+        return turns
+    }
+
+    private static func splitQuotedSpans(_ text: String) -> [RawSpan] {
+        let pairs: [Character: Character] = [
+            "“": "”",
+            "「": "」",
+            "『": "』",
+            "\"": "\""
+        ]
+        var spans: [RawSpan] = []
+        var buffer = ""
+        var activeClose: Character? = nil
+
+        for ch in text {
+            if let close = activeClose {
+                buffer.append(ch)
+                if ch == close {
+                    let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        spans.append(RawSpan(text: trimmed, isQuoted: true))
+                    }
+                    buffer = ""
+                    activeClose = nil
+                }
+            } else if let expectedClose = pairs[ch] {
+                let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    spans.append(RawSpan(text: trimmed, isQuoted: false))
+                }
+                buffer = String(ch)
+                activeClose = expectedClose
+            } else {
+                buffer.append(ch)
+            }
+        }
+
+        let remaining = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remaining.isEmpty {
+            spans.append(RawSpan(text: remaining, isQuoted: false))
+        }
+        return spans
+    }
+
+    private static func splitClauses(_ text: String) -> [String] {
+        let terminators: Set<Character> = ["。", "！", "？", "；", "!", "?", ";"]
+        var clauses: [String] = []
+        var current = ""
+
+        for ch in text {
+            current.append(ch)
+            if terminators.contains(ch) {
+                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    clauses.append(trimmed)
+                }
+                current = ""
+            }
+        }
+
+        let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            if tail.allSatisfy({ "”」』\"'）)".contains($0) }), !clauses.isEmpty {
+                clauses[clauses.count - 1].append(tail)
+            } else {
+                clauses.append(tail)
+            }
+        }
+        return clauses.isEmpty ? [text] : clauses
     }
 }
 
@@ -39,7 +537,12 @@ public final class EdgeNeuralTTS {
     private init() {}
     
     // MARK: - Public Synthesize API (Edge Neural WS -> Baidu Neural HTTP Fallback)
-    public func synthesize(text: String, voice: NeuralVoiceActor, rateMultiplier: Float) async throws -> Data {
+    public func synthesize(
+        text: String,
+        voice: NeuralVoiceActor,
+        rateMultiplier: Float,
+        style: SpeechExpressiveStyle = .multiRoleDrama
+    ) async throws -> Data {
         let clean = text
             .replacingOccurrences(of: "　", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -47,10 +550,18 @@ public final class EdgeNeuralTTS {
             throw NSError(domain: "EdgeNeuralTTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Empty text"])
         }
         
-        // 1. Try Microsoft Edge Neural TTS WebSocket (Xiaoxiao / Yunxi / Yunjian)
-        if let edgeData = try? await synthesizeViaEdgeWebSocket(text: clean, voice: voice, rateMultiplier: rateMultiplier),
+        let turns = ExpressiveSpeechPlanner.plan(paragraph: clean, primaryVoice: voice, style: style)
+        if let edgeData = try? await synthesizeViaEdgeWebSocket(turns: turns, rateMultiplier: rateMultiplier),
            edgeData.count > 256 {
             return edgeData
+        }
+
+        if style != .flat {
+            let flatTurns = ExpressiveSpeechPlanner.plan(paragraph: clean, primaryVoice: voice, style: .flat)
+            if let fallbackEdgeData = try? await synthesizeViaEdgeWebSocket(turns: flatTurns, rateMultiplier: rateMultiplier),
+               fallbackEdgeData.count > 256 {
+                return fallbackEdgeData
+            }
         }
         
         // 2. Fallback to Baidu Online Neural TTS HTTP MP3 stream
@@ -63,7 +574,10 @@ public final class EdgeNeuralTTS {
     }
     
     // MARK: - 1. Microsoft Edge ReadAloud Neural WebSocket
-    private func synthesizeViaEdgeWebSocket(text: String, voice: NeuralVoiceActor, rateMultiplier: Float) async throws -> Data {
+    private func synthesizeViaEdgeWebSocket(turns: [ExpressiveVoiceTurn], rateMultiplier: Float) async throws -> Data {
+        guard !turns.isEmpty else {
+            throw NSError(domain: "EdgeNeuralTTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Empty turns"])
+        }
         let serverTimestamp = await getSyncedUnixTimestamp()
         let gecToken = Self.generateSecMsGecV2(unixTimestamp: serverTimestamp)
         let connId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
@@ -93,43 +607,42 @@ public final class EdgeNeuralTTS {
         let configPayload = "X-Timestamp:\(timestampStr)\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"true\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}\r\n"
         try await wsTask.send(.string(configPayload))
         
-        let ratePercent = Int(round((rateMultiplier - 1.0) * 100.0))
-        let rateStr = ratePercent >= 0 ? "+\(ratePercent)%" : "\(ratePercent)%"
-        let escapedText = text
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&apos;")
-        
-        let ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='\(voice.rawValue)'><prosody pitch='+0Hz' rate='\(rateStr)' volume='+0%'>\(escapedText)</prosody></voice></speak>"
-        let reqId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        let ssmlPayload = "X-RequestId:\(reqId)\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:\(timestampStr)Z\r\nPath:ssml\r\n\r\n\(ssml)"
-        try await wsTask.send(.string(ssmlPayload))
-        
         var audioBuffer = Data()
-        while true {
-            let message = try await wsTask.receive()
-            switch message {
-            case .string(let str):
-                if str.contains("Path:turn.end") {
-                    return audioBuffer
-                }
-            case .data(let data):
-                guard data.count >= 2 else { continue }
-                let headerLen = (Int(data[0]) << 8) | Int(data[1])
-                let audioStart = 2 + headerLen
-                if audioStart < data.count {
-                    let headerData = data.subdata(in: 2..<audioStart)
-                    if let headerStr = String(data: headerData, encoding: .utf8),
-                       headerStr.contains("Path:audio") {
-                        audioBuffer.append(data.subdata(in: audioStart..<data.count))
+        for turn in turns {
+            try Task.checkCancellation()
+            let ssml = turn.buildSSML(baseRateMultiplier: rateMultiplier)
+            let reqId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+            let ssmlPayload = "X-RequestId:\(reqId)\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:\(timestampStr)Z\r\nPath:ssml\r\n\r\n\(ssml)"
+            try await wsTask.send(.string(ssmlPayload))
+
+            while true {
+                let message = try await wsTask.receive()
+                switch message {
+                case .string(let str):
+                    if str.contains("Path:turn.end") {
+                        break
                     }
+                    continue
+                case .data(let data):
+                    if data.count >= 2 {
+                        let headerLen = (Int(data[0]) << 8) | Int(data[1])
+                        let audioStart = 2 + headerLen
+                        if audioStart < data.count {
+                            let headerData = data.subdata(in: 2..<audioStart)
+                            if let headerStr = String(data: headerData, encoding: .utf8),
+                               headerStr.contains("Path:audio") {
+                                audioBuffer.append(data.subdata(in: audioStart..<data.count))
+                            }
+                        }
+                    }
+                    continue
+                @unknown default:
+                    continue
                 }
-            @unknown default:
                 break
             }
         }
+        return audioBuffer
     }
     
     // MARK: - 2. Baidu Online Neural TTS HTTP Fallback
