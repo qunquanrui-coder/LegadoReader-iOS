@@ -12,6 +12,8 @@
 
 网文测试分支新增独步小说、言情小说阁、夜天连、万相书城、快眼看书、UU 小说和笔趣阁 001。新增规则从 [shidahuilang/shuyuan-bak 的规则快照](https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json) 筛选，附 [GPL-3.0 许可](Resources/CuratedWebNovelSources-LICENSE.txt)。抽查包含《我的细胞监狱》《不许没收我的人籍》《诡秘之主》《凡人修仙传》和《斗罗大陆》。
 
+得奇小说网 `.org` 地址从 [yuyuan-cc/shuyuan 的规则快照](https://github.com/yuyuan-cc/shuyuan/blob/42a188f41ae55d79dc1a2ee3a160f2410633282e/all.json) 找到。风读按公开网页编写了适配规则，抽查《噩梦使徒》时读取了两页目录和第 1283 章的六页正文。
+
 ## v3.9.0 情感剧场听书版（多角色广播剧、小说动态情绪韵律与 10 位特色主播）
 
 - **🎭「旁白 + 男女对话」多角色剧场模式 (`SpeechExpressiveStyle.multiRoleDrama`)**：自动拆分段落中的旁白叙述与引号台词，结合上下文人称与神态描写自动判定男女角色，在单次 WebSocket 会话中为旁白、男主台词、女主台词动态切换专属音色。

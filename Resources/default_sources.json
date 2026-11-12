@@ -1252,5 +1252,30 @@
       "content": "id.content@html##笔趣阁 最新永久.*相互转告，谢谢！",
       "replaceRegex": "##www.*com"
     }
+  },
+  {
+    "bookSourceName": "得奇小说网（.org）",
+    "bookSourceUrl": "https://www.deqixs.org",
+    "bookSourceType": 0,
+    "bookSourceComment": "通过 GitHub 的 yuyuan-cc/shuyuan 找到站点。按得奇小说网公开网页编写风读适配规则，支持目录和正文分页。",
+    "enabled": true,
+    "searchUrl": "/modules/article/search.php,{\"method\":\"POST\",\"body\":\"searchkey={{key}}&action=login&searchtype=articlename\"}",
+    "ruleSearch": {
+      "bookList": ".item",
+      "name": "h1 a@text||h3 a@text",
+      "bookUrl": "h1 a@href||h3 a@href",
+      "author": ".itemtxt@p.1@a@text",
+      "coverUrl": "img@src"
+    },
+    "ruleToc": {
+      "chapterList": "#list li a[href]",
+      "chapterName": "text",
+      "chapterUrl": "href",
+      "nextTocUrl": "#pages a:contains(下一页)@href"
+    },
+    "ruleContent": {
+      "content": "div.con@html",
+      "nextContentUrl": "text.下一页@href"
+    }
   }
 ]
