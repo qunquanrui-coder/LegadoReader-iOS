@@ -312,7 +312,7 @@ public struct BookshelfView: View {
                 .font(.system(size: 20, weight: .bold, design: .serif))
                 .foregroundColor(.primary)
             
-            Text("已内置 \(storage.bookSources.count) 个经过实测的高速纯净书源\n搜索任意书名或作者，即刻开启无广告阅读")
+            Text("随应用提供 \(storage.bundledSourceCount) 个内置书源\n可按书名或作者搜索，站点可用性以联网结果为准")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

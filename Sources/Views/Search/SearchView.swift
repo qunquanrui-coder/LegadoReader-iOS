@@ -393,7 +393,7 @@ public struct SearchView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("多书源并发引擎 + 智能相关度排序已开启")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("已启用 \(storage.bookSources.filter { $0.enabled ?? true }.count) 个精品书源，精确匹配的同名原著将自动置顶")
+                        Text("已启用 \(storage.bookSources.filter { $0.enabled ?? true }.count) 个书源，精确匹配的同名原著将优先显示")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }

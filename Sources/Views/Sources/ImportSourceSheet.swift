@@ -10,18 +10,7 @@ public struct ImportSourceSheet: View {
     @State private var isError = false
     @State private var updateExisting = true
     
-    private let presets: [(name: String, desc: String, url: String)] = [
-        (
-            "风读内置精选书源",
-            "适合日常阅读；站点可用性会随时间和网络变化",
-            "https://fastly.jsdelivr.net/gh/qunquanrui-coder/LegadoReader-iOS@main/Resources/default_sources.json"
-        ),
-        (
-            "全网 3000+ 综合书源合集",
-            "数量较多，部分规则暂不支持；导入后可测试搜索",
-            "https://fastly.jsdelivr.net/gh/shidahuilang/shuyuan-bak@main/good.json"
-        )
-    ]
+    private let externalCatalogURL = "https://fastly.jsdelivr.net/gh/shidahuilang/shuyuan-bak@main/good.json"
     
     public init() {}
     
@@ -51,34 +40,32 @@ public struct ImportSourceSheet: View {
                 }
                 
                 Section {
-                    Toggle("更新已有同地址书源的规则", isOn: $updateExisting)
+                    Toggle("网络导入时更新同地址规则", isOn: $updateExisting)
                         .disabled(isImporting)
                 } footer: {
                     Text("保留原有启用/禁用设置。导入只保存规则，不代表书源已通过联网验证。")
                 }
                 Section("书源仓库 (点击一键导入)") {
-                    ForEach(presets, id: \.url) { preset in
-                        Button {
-                            inputUrl = preset.url
-                            performImport(urlStr: preset.url)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack {
-                                    Text(preset.name)
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(.primary)
-                                    Spacer()
-                                    Image(systemName: "arrow.down.circle.fill")
-                                        .foregroundColor(.indigo)
-                                }
-                                Text(preset.desc)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.vertical, 4)
-                        }
-                        .disabled(isImporting)
+                    Button {
+                        let added = storage.loadDefaultSources()
+                        isError = false
+                        statusMessage = "已补充 \(added) 个内置书源。当前共保存 \(storage.bookSources.count) 个书源。"
+                    } label: {
+                        presetLabel("风读内置精选书源（\(storage.bundledSourceCount) 个）",
+                                    description: "无需下载，补齐缺失的内置规则",
+                                    icon: "plus.circle.fill")
                     }
+                    .disabled(isImporting || storage.bundledSourceCount == 0)
+
+                    Button {
+                        inputUrl = externalCatalogURL
+                        performImport(urlStr: externalCatalogURL)
+                    } label: {
+                        presetLabel("全网 3000+ 综合书源合集",
+                                    description: "数量较多，部分规则暂不支持；导入后可测试搜索",
+                                    icon: "arrow.down.circle.fill")
+                    }
+                    .disabled(isImporting)
                 }
                 
                 if !statusMessage.isEmpty {
@@ -101,6 +88,23 @@ public struct ImportSourceSheet: View {
         }
     }
     
+    private func presetLabel(_ title: String, description: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.primary)
+                Spacer()
+                Image(systemName: icon)
+                    .foregroundColor(.indigo)
+            }
+            Text(description)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
     private func performImport(urlStr: String) {
         let cleanUrl = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUrl.isEmpty, !isImporting else { return }

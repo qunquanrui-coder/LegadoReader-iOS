@@ -86,3 +86,17 @@ regional voices, and `zh-TW` locale tags), `ExpressiveSpeechPlanner` multi-role 
 (separating narration, female dialogue, and male dialogue), `NovelEmotionAnalyzer` attribution emotion
 inheritance and clause prosody modulation (`pitch`, `rate`, `volume`), single-voice multi-prosody SSML
 coalescing, XML escaping, and `SpeechSynthesizerManager` expressive style updates.
+
+## Live validation for new bundled book sources
+
+Normal CI does not contact book sites. For a curation run, put a reviewed Legado JSON array at
+`Tests/SourceProbeCandidates.json` (ignored by Git), regenerate the Xcode project, then run only
+`LegadoReaderTests/LiveSourceProbeTests` on an iOS simulator. Do not add a source to that input
+until its site, rules, and redistribution provenance have been reviewed.
+
+The probe uses the app's search, full catalog loader and chapter loader. It requires an exact
+title match, a complete catalog with at least five entries, and two different consecutive interior
+chapters with at least 300 characters each. Reports include only source identity, outcome and timing;
+they do not save book text. This is a live sample, not a guarantee for all books or networks.
+Without a candidate file the test is skipped. Run the sample again on the target network before
+shipping a catalog expansion, and include the date and origin of the verified rules.

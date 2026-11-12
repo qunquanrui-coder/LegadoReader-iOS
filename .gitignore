@@ -8,3 +8,4 @@ build/
 *.ipa
 .build/
 *.xcodeproj
+/Tests/SourceProbeCandidates.json

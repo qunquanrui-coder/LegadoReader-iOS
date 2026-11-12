@@ -31,6 +31,7 @@ public class StorageManager: ObservableObject {
     
     private let bookshelfKey = "LegadoReader_Bookshelf_v2"
     private let sourcesKey = "LegadoReader_BookSources_v2_1"
+    private let seenBundledSourceURLsKey = "LegadoReader_SeenBundledSourceURLs_v1"
     private let configKey = "LegadoReader_ReaderConfig_v2"
     private let historyKey = "LegadoReader_SearchHistory_v2"
     private let positionMapKey = "LegadoReader_PositionMap_v3_1"
@@ -39,6 +40,7 @@ public class StorageManager: ObservableObject {
     private let pendingRelocationKey = "LegadoReader_PendingRelocation_v3_2_1"
     private let configUpdatedAtKey = "LegadoReader_ReaderConfigUpdatedAt_v3_8"
     private let defaults: UserDefaults
+    private let bundledSources: [BookSource]
     private let onBookRemoval: ((Book) -> Void)?
     private let writeLock = NSRecursiveLock()
     private var bookGenerations: [String: UUID] = [:]
@@ -165,10 +167,11 @@ public class StorageManager: ObservableObject {
 
     /// Isolated storage for regression tests and previews; never migrates production caches.
     init(defaults: UserDefaults, cacheDirectoryURL: URL, loadDefaults: Bool = true,
-         onBookRemoval: ((Book) -> Void)? = nil) {
+         onBookRemoval: ((Book) -> Void)? = nil, bundledSources: [BookSource]? = nil) {
         self.defaults = defaults
         self.cacheDirectoryURL = cacheDirectoryURL
         self.onBookRemoval = onBookRemoval
+        self.bundledSources = bundledSources ?? Self.readBundledSources()
         try? fileManager.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
         if loadDefaults { loadData() }
     }
@@ -239,13 +242,7 @@ public class StorageManager: ObservableObject {
             self.searchHistory = hist
         }
         
-        if let sourcesData = defaults.data(forKey: sourcesKey),
-           let savedSources = try? JSONDecoder().decode([BookSource].self, from: sourcesData),
-           !savedSources.isEmpty {
-            self.bookSources = savedSources
-        } else {
-            loadDefaultSources()
-        }
+        loadBookSources()
     }
     
     public func addSearchHistory(_ keyword: String) {
@@ -467,6 +464,42 @@ public class StorageManager: ObservableObject {
     }
     
     // MARK: - BookSource Operations
+    /// These were bundled before the seen-URL record existed. Missing ones may have been removed by the reader.
+    private static let legacyBundledSourceURLs = [
+        "http://www.shukuge.com", "http://www.qsyz.net", "https://www.haogushi88.cc",
+        "https://www.biquge78.cc", "https://www.conglianhao.com", "https://www.qbtr.cc",
+        "https://www.deqixs.co", "https://m.jhsssd.com", "https://m.douxsw.com",
+        "http://www.qudushu.com", "https://www.bimidu.com", "http://www.x23us.us",
+        "http://wenxuebank.com", "https://www.wtzw.com", "https://www.sjks88.com",
+        "http://www.jpxs123.com", "http://www.qbtr.cc", "http://m.qudushu.com",
+        "https://www.wanwx.com", "https://www.luoxia123.com"
+    ]
+
+    private func loadBookSources() {
+        let bundledURLs = Set(bundledSources.map(\.bookSourceUrl))
+        guard let data = defaults.data(forKey: sourcesKey),
+              let saved = try? JSONDecoder().decode([BookSource].self, from: data) else {
+            bookSources = []
+            if loadDefaultSources() > 0 {
+                defaults.set(bundledURLs.sorted(), forKey: seenBundledSourceURLsKey)
+            }
+            return
+        }
+
+        bookSources = saved
+        guard !bundledSources.isEmpty else { return }
+        let seen = defaults.stringArray(forKey: seenBundledSourceURLsKey)
+        let knownURLs = Set(seen ?? Self.legacyBundledSourceURLs)
+        let newSources = bundledSources.filter { !knownURLs.contains($0.bookSourceUrl) }
+        if !newSources.isEmpty {
+            _ = appendSources(newSources)
+        }
+        if seen == nil || !newSources.isEmpty {
+            // Retain removed catalog URLs as well, in case a future bundle includes them again.
+            defaults.set(knownURLs.union(bundledURLs).sorted(), forKey: seenBundledSourceURLsKey)
+        }
+    }
+
     public func saveBookSources() {
         if let data = try? JSONEncoder().encode(bookSources) {
             defaults.set(data, forKey: sourcesKey)
@@ -496,17 +529,24 @@ public class StorageManager: ObservableObject {
         return result
     }
     
-    private func bundledSources() -> [BookSource] {
+    private static func readBundledSources() -> [BookSource] {
         guard let url = Bundle.main.url(forResource: "default_sources", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let list = try? JSONDecoder().decode(LossyCodableList<BookSource>.self, from: data) else { return [] }
         return list.elements
     }
 
+    public var bundledSourceCount: Int { bundledSources.count }
+
     /// Replenish missing built-ins without overwriting imported rules, custom edits or enable switches.
     @discardableResult
     public func loadDefaultSources() -> Int {
-        let result = SourceImportPolicy.merge(existing: bookSources, incoming: bundledSources(), updateExisting: false)
+        appendSources(bundledSources)
+    }
+
+    private func appendSources(_ sources: [BookSource]) -> Int {
+        let result = SourceImportPolicy.merge(existing: bookSources, incoming: sources, updateExisting: false)
+        guard result.added > 0 else { return 0 }
         bookSources = result.sources
         saveBookSources()
         return result.added
@@ -521,7 +561,7 @@ public class StorageManager: ObservableObject {
     /// The caller must present a destructive-action confirmation. A failed snapshot never resets rules.
     @discardableResult
     public func resetSourcesToDefaults() throws -> URL {
-        let builtIns = bundledSources()
+        let builtIns = bundledSources
         guard !builtIns.isEmpty else { throw NSError(domain: "LegadoReader", code: -20,
             userInfo: [NSLocalizedDescriptionKey: "内置书源未能读取，已保留当前书源"] ) }
         let snapshot = sourceResetSnapshotURL
