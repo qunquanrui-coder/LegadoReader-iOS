@@ -8,7 +8,9 @@
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（支持 HTML/CSS 与受限白名单表达式求值；JSONPath、JavaScript 搜索列表、混合 CSS/JS 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
 
-内置书源随应用提供，可在书源中心离线补充规则。升级只追加首次出现的内置地址，保留已有规则、启用状态和此前删掉的旧源。新增的[中文维基文库](https://zh.wikisource.org/)与 [WUGUO 古籍](https://wuguo.org/)规则适合读公开古典小说；已抽查《红楼梦》《三国演义》的搜索、目录与连续章节。规则内置不代表正文离线可读，站点可用性会随网络和时间变化。[新书源验收方法](Tests/README.md#live-validation-for-new-bundled-book-sources)
+内置书源可在书源中心离线补充规则。升级只追加首次出现的内置地址，保留已有规则、启用状态和此前删掉的旧源。书源可用性会随网络和时间变化。[新书源验收方法](Tests/README.md#live-validation-for-new-bundled-book-sources)
+
+网文测试分支新增独步小说、言情小说阁、夜天连、万相书城、快眼看书、UU 小说和笔趣阁 001。新增规则从 [shidahuilang/shuyuan-bak 的规则快照](https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json) 筛选，附 [GPL-3.0 许可](Resources/CuratedWebNovelSources-LICENSE.txt)。抽查包含《我的细胞监狱》《不许没收我的人籍》《诡秘之主》《凡人修仙传》和《斗罗大陆》。
 
 ## v3.9.0 情感剧场听书版（多角色广播剧、小说动态情绪韵律与 10 位特色主播）
 

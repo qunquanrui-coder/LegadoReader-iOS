@@ -106,8 +106,9 @@ For the native run, put a reviewed Legado JSON array at
 until its site, rules, and redistribution provenance have been reviewed.
 
 The probe uses the app's search, full catalog loader and chapter loader. It requires an exact
-title match, a complete catalog with at least five entries, and two different consecutive interior
-chapters with at least 300 characters each. Reports include only source identity, outcome and timing;
+title match, a complete catalog with at least 100 entries for these long sample novels, two different
+consecutive interior chapters, and a readable chapter from the catalog tail. Each sample must contain
+at least 300 characters. Reports include only source identity, outcome and timing;
 they do not save book text. This is a live sample, not a guarantee for all books or networks.
 Without a candidate file the test is skipped. Run the sample again on the target network before
 shipping a catalog expansion, and include the date and origin of the verified rules.

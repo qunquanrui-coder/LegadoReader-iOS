@@ -1083,51 +1083,174 @@
     "weight": 0
   },
   {
-    "bookSourceName": "维基文库（中文古典小说）",
-    "bookSourceUrl": "https://zh.wikisource.org",
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
+    "bookSourceName": "独步小说",
     "bookSourceType": 0,
-    "bookSourceComment": "维基文库中文公版与自由许可文本。规则依据公开 HTML 编写。",
+    "bookSourceUrl": "https://www.dbxsn.com",
     "enabled": true,
-    "searchUrl": "/w/index.php?title=Special:Search&fulltext=1&search={{key}}&profile=advanced&ns0=1",
+    "searchUrl": "/plus/search.php?q={{key}}",
     "ruleSearch": {
-      "bookList": ".mw-search-result-ns-0",
-      "name": ".mw-search-result-heading > a:not([title*=\"/\"])@text##.*[（(]消歧義[）)].*",
-      "bookUrl": ".mw-search-result-heading > a:not([title*=\"/\"])@href",
-      "intro": ".searchresult@text"
+      "author": "td.1@text",
+      "bookList": "tbody@tr",
+      "bookUrl": "td.0@a@href",
+      "name": "td.0@a@text"
     },
     "ruleToc": {
-      "chapterList": ".mw-parser-output a[title*=\"/第\"], .mw-parser-output a[title*=\"/卷\"]",
+      "chapterList": "class.col-md-6 item@a",
       "chapterName": "text",
       "chapterUrl": "href"
     },
     "ruleContent": {
-      "content": ".mw-parser-output .mf-section-0 > p, .mw-parser-output .mf-section-0 .poem p, .mw-parser-output > p, .mw-parser-output > .poem p, .mw-parser-output .prp-pages-output p, .mw-parser-output .prose p@html"
+      "content": "#cont-body@p@text",
+      "nextContentUrl": "class.col-md-6 text-center@a.-1@href"
     }
   },
   {
-    "bookSourceName": "WUGUO 古籍（公版）",
-    "bookSourceUrl": "https://wuguo.org",
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json\n原规则说明：笔趣阁分阁\n男频\n女频",
+    "bookSourceName": "言情小说阁",
     "bookSourceType": 0,
-    "bookSourceComment": "WUGUO 中国古籍数字阅读平台的公开文字古籍。规则依据公开 HTML 编写。",
+    "bookSourceUrl": "http://www.xianqihaotianmi.org/",
     "enabled": true,
-    "searchUrl": "/search?keyword={{key}}",
+    "searchUrl": "/modules/article/search.php,{\n  \"method\": \"POST\",\n  \"body\": \"searchkey={{key}}\"\n}",
     "ruleSearch": {
-      "bookList": ".mvp-search-unified-book",
-      "name": "h3 a[href*=\"/novels/\"]@text",
-      "bookUrl": "h3 a[href*=\"/novels/\"]@href",
-      "author": ".mvp-search-unified-meta@text##\\s*·[\\s\\S]*$",
-      "intro": ".mvp-search-unified-snippet@text"
-    },
-    "ruleBookInfo": {
-      "tocUrl": "a.novel-detail-secondary[href*=\"/catalog\"]@href"
+      "author": "a.1@text",
+      "bookList": "#bookcon@tag.tr",
+      "bookUrl": "a.0@href",
+      "lastChapter": "p.-2@text",
+      "name": "a.0@text"
     },
     "ruleToc": {
-      "chapterList": ".novel-catalog-text-rows:not([x-cloak]) a.novel-catalog-text-row",
-      "chapterName": "span.truncate@text",
+      "chapterList": ".panel-body.2@li@a",
+      "chapterName": "text##正文卷.|正文.|VIP卷.|默认卷.|卷_|VIP章节.|免费章节.|章节目录.|最新章节.|[\\(（【].*?[求更票谢乐发订合补加架字修Kk].*?[】）\\)]",
       "chapterUrl": "href"
     },
     "ruleContent": {
-      "content": "#chapterContent .reader-stream-chapter-body@html"
+      "content": ".content-body@html##正在手打中，请稍等片刻，内容更新后，请重新刷新页面，即可获取最新更新！"
+    }
+  },
+  {
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
+    "bookSourceName": "夜天连",
+    "bookSourceType": 0,
+    "bookSourceUrl": "http://www.yetianlian.net",
+    "enabled": true,
+    "searchUrl": "http://www.yetianlian.net/s.php?ie=utf-8&q={{key}}",
+    "ruleSearch": {
+      "author": "class.bookinfo@class.author@text",
+      "bookList": "class.bookbox",
+      "bookUrl": "class.bookname@tag.a@href",
+      "coverUrl": "tag.img@src",
+      "lastChapter": "class.bookinfo@class.update@tag.a@text",
+      "name": "class.bookname@tag.a@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.listmain@tag.dd",
+      "chapterName": "tag.a@text",
+      "chapterUrl": "tag.a@href"
+    },
+    "ruleContent": {
+      "content": "class.showtxt@html",
+      "nextContentUrl": "text.下一章@href"
+    }
+  },
+  {
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
+    "bookSourceName": "万相书城",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.wxsck.com",
+    "enabled": true,
+    "searchUrl": "/plus/search.php?q={{key}}",
+    "ruleSearch": {
+      "author": "td.1@text",
+      "bookList": "tbody@tr",
+      "bookUrl": "a.0@href",
+      "coverUrl": "a.0@href##(\\d+)##/uploads/cover/pic$1.jpg###",
+      "name": "a.0@text##《|》"
+    },
+    "ruleBookInfo": {
+      "tocUrl": "text.目录@href"
+    },
+    "ruleToc": {
+      "chapterList": "#all-chapter@.item@a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "#cont-body@p@html",
+      "nextContentUrl": ".text-center@a.-1@href"
+    }
+  },
+  {
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
+    "bookSourceName": "快眼看书",
+    "bookSourceType": 0,
+    "bookSourceUrl": "http://www.botaodz.com/",
+    "enabled": true,
+    "searchUrl": "/modules/article/search.php?searchkey={{key}}",
+    "ruleSearch": {
+      "author": "class.info@tag.span.1@text##作者：",
+      "bookList": "class.librarylist@tag.li",
+      "bookUrl": "tag.a.0@href",
+      "coverUrl": "tag.img.0@src",
+      "intro": "class.intro@text",
+      "lastChapter": "class.last@tag.a@text",
+      "name": "class.novelname@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.hide@tag.a",
+      "chapterName": "text##(?<=\\d章\\h)\\d+(\\+\\d+)?[，、]|(?<!^|[章卷部集]\\h?|[零一二三四五六七八九十][、\\h])[（［【\\{\\[\\(](?![一二三四五六七八九十]{1,3}\\W$|\\d{1,3}\\D$|[上中下完终续]\\W)[^（［【\\{\\[\\(]+|^(?=请\\w{0,2}假|解释|上架|推封|新书)\\S{2,}$",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "id.chaptercontent@textNodes"
+    }
+  },
+  {
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json\n原规则说明：by:繁華落盡終成殤",
+    "bookSourceName": "UU小说",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.xiaoshuouu.com",
+    "enabled": true,
+    "searchUrl": "https://www.xiaoshuouu.com/search/,{\n  \"body\": \"searchkey={{key}}\",\n  \"method\": \"POST\"\n}",
+    "ruleSearch": {
+      "author": ".s4@text",
+      "bookList": ".txt-list-row5@li!0",
+      "bookUrl": "a.0@href",
+      "lastChapter": ".s3@a@text",
+      "name": ".s2@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.section-list fix.1@li@a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "#content@p!0@html",
+      "nextContentUrl": "#next_url@href"
+    }
+  },
+  {
+    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
+    "bookSourceName": "笔趣阁001",
+    "bookSourceType": 0,
+    "bookSourceUrl": "http://www.biquge001.com",
+    "enabled": true,
+    "searchUrl": "http://www.biquge001.com/modules/article/search.php?searchkey={{key}}&page={{page}},{\n  \"charset\": \"gbk\"\n}",
+    "ruleSearch": {
+      "author": "tag.td.2@text",
+      "bookList": "class.grid@tag.tr",
+      "bookUrl": "tag.td.0@tag.a@href",
+      "lastChapter": "tag.td.1@tag.a@text",
+      "name": "tag.td.0@tag.a@text"
+    },
+    "ruleToc": {
+      "chapterList": "id.list@tag.dd",
+      "chapterName": "tag.a@text",
+      "chapterUrl": "tag.a@href"
+    },
+    "ruleContent": {
+      "content": "id.content@html##笔趣阁 最新永久.*相互转告，谢谢！",
+      "replaceRegex": "##www.*com"
     }
   }
 ]

@@ -159,6 +159,84 @@ jobs:
             LegadoReader-iPhoneDuo-unsigned.ipa
           retention-days: 30
 
+  source_probe:
+    name: Probe new bundled novel sources on iPhone
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/curated-bundled-sources'
+    runs-on: xcode-27
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Select additions since v3.9.0
+        id: candidates
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          path = pathlib.Path('Resources/default_sources.json')
+          baseline = json.loads(subprocess.check_output(
+              ['git', 'show', f'v3.9.0:{path.as_posix()}']).decode('utf-8-sig'))
+          previous = {source['bookSourceUrl'] for source in baseline}
+          current = json.loads(path.read_text(encoding='utf-8-sig'))
+          additions = [source for source in current if source['bookSourceUrl'] not in previous]
+          if additions:
+              pathlib.Path('Tests/SourceProbeCandidates.json').write_text(
+                  json.dumps(additions, ensure_ascii=False), encoding='utf-8')
+          print(f'{len(additions)} newly added source URLs')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              print(f'count={len(additions)}', file=output)
+          PY
+
+      - name: Prepare iPhone simulator and test target
+        if: steps.candidates.outputs.count != '0'
+        run: |
+          which xcodegen || brew install xcodegen
+          xcodegen generate
+          xcrun simctl list devices available -j | python3 scripts/select_ios_simulators.py
+
+      - name: Verify search, complete catalog and adjacent chapters
+        if: steps.candidates.outputs.count != '0'
+        shell: bash
+        run: |
+          xcodebuild test \
+            -project LegadoReader.xcodeproj \
+            -scheme LegadoReader \
+            -destination "platform=iOS Simulator,id=$STANDARD_SIMULATOR_ID" \
+            -only-testing:LegadoReaderTests/LiveSourceProbeTests \
+            -parallel-testing-enabled NO \
+            -derivedDataPath ./ProbeDerivedData \
+            -resultBundlePath ./SourceProbe.xcresult \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee SourceProbe.log
+
+      - name: Summarize source results
+        if: always() && steps.candidates.outputs.count != '0'
+        run: |
+          if [[ -f SourceProbe.log ]]; then
+            grep -E '^Source probe (passed|failed|summary):' SourceProbe.log > SourceProbeSummary.txt || true
+            if [[ -s SourceProbeSummary.txt ]]; then
+              cat SourceProbeSummary.txt >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo 'The native probe did not report source outcomes. See the test log.' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+
+      - name: Upload source probe results
+        if: always() && steps.candidates.outputs.count != '0'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: native-source-probe
+          path: |
+            SourceProbeSummary.txt
+            SourceProbe.log
+            SourceProbe.xcresult
+          retention-days: 7
+
   release:
     name: Publish GitHub Release (tag only)
     if: startsWith(github.ref, 'refs/tags/v')
