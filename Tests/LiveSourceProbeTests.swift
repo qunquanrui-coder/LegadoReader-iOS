@@ -41,7 +41,7 @@ final class LiveSourceProbeTests: XCTestCase {
 
     private static func probe(_ source: BookSource) async -> ProbeResult {
         var result = ProbeResult(source: source)
-        let titles = ["斗罗大陆", "诡秘之主", "凡人修仙传", "三体", "红楼梦"]
+        let titles = ["斗罗大陆", "诡秘之主", "凡人修仙传", "三体", "红楼梦", "紅樓夢", "三國演義"]
         let start = Date()
         var stage = "搜索"
         do {
@@ -74,7 +74,7 @@ final class LiveSourceProbeTests: XCTestCase {
                 result.elapsedMilliseconds = Int(Date().timeIntervalSince(start) * 1000)
                 return result
             }
-            result.failure = "五个测试书名均无精确搜索结果"
+            result.failure = "样本书名均无精确搜索结果"
         } catch {
             // Some transport errors include response URLs; print only the error kind/code.
             result.failure = "\(stage)失败：\(type(of: error)) (\((error as NSError).code))"

@@ -1081,5 +1081,53 @@
     },
     "searchUrl": "https://www.luoxia123.com/e/search/index.php,{\n  \"body\": \"tbname=bookname&show=title,writer&tempid=1&keyboard={{key}}\",\n  \"charset\": \"UTF-8\",\n  \"method\": \"POST\"\n}",
     "weight": 0
+  },
+  {
+    "bookSourceName": "维基文库（中文古典小说）",
+    "bookSourceUrl": "https://zh.wikisource.org",
+    "bookSourceType": 0,
+    "bookSourceComment": "维基文库中文公版与自由许可文本。规则依据公开 HTML 编写。",
+    "enabled": true,
+    "searchUrl": "/w/index.php?title=Special:Search&fulltext=1&search={{key}}&profile=advanced&ns0=1",
+    "ruleSearch": {
+      "bookList": ".mw-search-result-ns-0",
+      "name": ".mw-search-result-heading > a:not([title*=\"/\"])@text##.*[（(]消歧義[）)].*",
+      "bookUrl": ".mw-search-result-heading > a:not([title*=\"/\"])@href",
+      "intro": ".searchresult@text"
+    },
+    "ruleToc": {
+      "chapterList": ".mw-parser-output a[title*=\"/第\"], .mw-parser-output a[title*=\"/卷\"]",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": ".mw-parser-output .mf-section-0 > p, .mw-parser-output .mf-section-0 .poem p, .mw-parser-output > p, .mw-parser-output > .poem p, .mw-parser-output .prp-pages-output p, .mw-parser-output .prose p@html"
+    }
+  },
+  {
+    "bookSourceName": "WUGUO 古籍（公版）",
+    "bookSourceUrl": "https://wuguo.org",
+    "bookSourceType": 0,
+    "bookSourceComment": "WUGUO 中国古籍数字阅读平台的公开文字古籍。规则依据公开 HTML 编写。",
+    "enabled": true,
+    "searchUrl": "/search?keyword={{key}}",
+    "ruleSearch": {
+      "bookList": ".mvp-search-unified-book",
+      "name": "h3 a[href*=\"/novels/\"]@text",
+      "bookUrl": "h3 a[href*=\"/novels/\"]@href",
+      "author": ".mvp-search-unified-meta@text##\\s*·[\\s\\S]*$",
+      "intro": ".mvp-search-unified-snippet@text"
+    },
+    "ruleBookInfo": {
+      "tocUrl": "a.novel-detail-secondary[href*=\"/catalog\"]@href"
+    },
+    "ruleToc": {
+      "chapterList": ".novel-catalog-text-rows:not([x-cloak]) a.novel-catalog-text-row",
+      "chapterName": "span.truncate@text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "#chapterContent .reader-stream-chapter-body@html"
+    }
   }
 ]

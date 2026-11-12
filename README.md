@@ -6,7 +6,9 @@
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
 ![Release](https://img.shields.io/badge/Release-v3.9.0-brightgreen)
 
-**风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 纯净小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（内置 20 个精选书源，支持 HTML/CSS 与受限白名单表达式求值；JSONPath、JavaScript 搜索列表、混合 CSS/JS 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
+**风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（支持 HTML/CSS 与受限白名单表达式求值；JSONPath、JavaScript 搜索列表、混合 CSS/JS 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
+
+内置书源随应用提供，可在书源中心离线补充规则。升级只追加首次出现的内置地址，保留已有规则、启用状态和此前删掉的旧源。新增的[中文维基文库](https://zh.wikisource.org/)与 [WUGUO 古籍](https://wuguo.org/)规则适合读公开古典小说；已抽查《红楼梦》《三国演义》的搜索、目录与连续章节。规则内置不代表正文离线可读，站点可用性会随网络和时间变化。[新书源验收方法](Tests/README.md#live-validation-for-new-bundled-book-sources)
 
 ## v3.9.0 情感剧场听书版（多角色广播剧、小说动态情绪韵律与 10 位特色主播）
 
@@ -139,7 +141,7 @@ LegadoReader-iOS/
 ├── project.yml                          # XcodeGen 工程配置文件 (v3.8.0)
 ├── Resources/
 │   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
-│   ├── default_sources.json             # 内置 20 个实测高速纯净 Legado 书源
+│   ├── default_sources.json             # 随应用提供的 Legado 书源规则
 │   └── Assets.xcassets/                 # 东方水墨书卷 AppIcon 与应用静态资源
 └── Sources/
     ├── App/

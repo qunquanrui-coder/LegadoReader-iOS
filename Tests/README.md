@@ -89,7 +89,18 @@ coalescing, XML escaping, and `SpeechSynthesizerManager` expressive style update
 
 ## Live validation for new bundled book sources
 
-Normal CI does not contact book sites. For a curation run, put a reviewed Legado JSON array at
+Normal CI does not contact book sites. To narrow a reviewed candidate set before a native run:
+
+```sh
+python -m pip install requests beautifulsoup4 lxml regex
+python scripts/validate_book_sources.py candidates.json --title 斗罗大陆 --title 诡秘之主 \
+  --title 凡人修仙传 --report source-probe-report.json --passing-json source-probe-passed.json
+```
+
+This first pass screens an HTML rule subset. Treat its output as a shortlist; resolve aliases and
+check source provenance separately. A failure can be specific to the network or the sample title.
+
+For the native run, put a reviewed Legado JSON array at
 `Tests/SourceProbeCandidates.json` (ignored by Git), regenerate the Xcode project, then run only
 `LegadoReaderTests/LiveSourceProbeTests` on an iOS simulator. Do not add a source to that input
 until its site, rules, and redistribution provenance have been reviewed.
