@@ -10,7 +10,7 @@
 
 内置书源可在书源中心离线补充规则。升级只追加首次出现的内置地址，保留已有规则、启用状态和此前删掉的旧源。书源可用性会随网络和时间变化。[新书源验收方法](Tests/README.md#live-validation-for-new-bundled-book-sources)
 
-网文测试分支新增独步小说、言情小说阁、夜天连、万相书城、快眼看书、UU 小说和笔趣阁 001。新增规则从 [shidahuilang/shuyuan-bak 的规则快照](https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json) 筛选，附 [GPL-3.0 许可](Resources/CuratedWebNovelSources-LICENSE.txt)。抽查包含《我的细胞监狱》《不许没收我的人籍》《诡秘之主》《凡人修仙传》和《斗罗大陆》。
+网文测试分支新增独步小说、言情小说阁、夜天连和万相书城，均通过风读原生搜索、目录和正文抽查。规则从 [shidahuilang/shuyuan-bak 的规则快照](https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json) 筛选，附 [GPL-3.0 许可](Resources/CuratedWebNovelSources-LICENSE.txt)。
 
 得奇小说网 `.org` 地址从 [yuyuan-cc/shuyuan 的规则快照](https://github.com/yuyuan-cc/shuyuan/blob/42a188f41ae55d79dc1a2ee3a160f2410633282e/all.json) 找到。风读按公开网页编写了适配规则，抽查《噩梦使徒》时读取了两页目录和第 1283 章的六页正文。
 

@@ -1181,79 +1181,6 @@
     }
   },
   {
-    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
-    "bookSourceName": "快眼看书",
-    "bookSourceType": 0,
-    "bookSourceUrl": "http://www.botaodz.com/",
-    "enabled": true,
-    "searchUrl": "/modules/article/search.php?searchkey={{key}}",
-    "ruleSearch": {
-      "author": "class.info@tag.span.1@text##作者：",
-      "bookList": "class.librarylist@tag.li",
-      "bookUrl": "tag.a.0@href",
-      "coverUrl": "tag.img.0@src",
-      "intro": "class.intro@text",
-      "lastChapter": "class.last@tag.a@text",
-      "name": "class.novelname@text"
-    },
-    "ruleToc": {
-      "chapterList": "class.hide@tag.a",
-      "chapterName": "text##(?<=\\d章\\h)\\d+(\\+\\d+)?[，、]|(?<!^|[章卷部集]\\h?|[零一二三四五六七八九十][、\\h])[（［【\\{\\[\\(](?![一二三四五六七八九十]{1,3}\\W$|\\d{1,3}\\D$|[上中下完终续]\\W)[^（［【\\{\\[\\(]+|^(?=请\\w{0,2}假|解释|上架|推封|新书)\\S{2,}$",
-      "chapterUrl": "href"
-    },
-    "ruleContent": {
-      "content": "id.chaptercontent@textNodes"
-    }
-  },
-  {
-    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json\n原规则说明：by:繁華落盡終成殤",
-    "bookSourceName": "UU小说",
-    "bookSourceType": 0,
-    "bookSourceUrl": "https://www.xiaoshuouu.com",
-    "enabled": true,
-    "searchUrl": "https://www.xiaoshuouu.com/search/,{\n  \"body\": \"searchkey={{key}}\",\n  \"method\": \"POST\"\n}",
-    "ruleSearch": {
-      "author": ".s4@text",
-      "bookList": ".txt-list-row5@li!0",
-      "bookUrl": "a.0@href",
-      "lastChapter": ".s3@a@text",
-      "name": ".s2@text"
-    },
-    "ruleToc": {
-      "chapterList": "class.section-list fix.1@li@a",
-      "chapterName": "text",
-      "chapterUrl": "href"
-    },
-    "ruleContent": {
-      "content": "#content@p!0@html",
-      "nextContentUrl": "#next_url@href"
-    }
-  },
-  {
-    "bookSourceComment": "规则来源 shidahuilang/shuyuan-bak，GPL-3.0。风读适配并抽查于 2026-11-12。https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json",
-    "bookSourceName": "笔趣阁001",
-    "bookSourceType": 0,
-    "bookSourceUrl": "http://www.biquge001.com",
-    "enabled": true,
-    "searchUrl": "http://www.biquge001.com/modules/article/search.php?searchkey={{key}}&page={{page}},{\n  \"charset\": \"gbk\"\n}",
-    "ruleSearch": {
-      "author": "tag.td.2@text",
-      "bookList": "class.grid@tag.tr",
-      "bookUrl": "tag.td.0@tag.a@href",
-      "lastChapter": "tag.td.1@tag.a@text",
-      "name": "tag.td.0@tag.a@text"
-    },
-    "ruleToc": {
-      "chapterList": "id.list@tag.dd",
-      "chapterName": "tag.a@text",
-      "chapterUrl": "tag.a@href"
-    },
-    "ruleContent": {
-      "content": "id.content@html##笔趣阁 最新永久.*相互转告，谢谢！",
-      "replaceRegex": "##www.*com"
-    }
-  },
-  {
     "bookSourceName": "得奇小说网（.org）",
     "bookSourceUrl": "https://www.deqixs.org",
     "bookSourceType": 0,
@@ -1271,7 +1198,7 @@
       "chapterList": "#list li a[href]",
       "chapterName": "text",
       "chapterUrl": "href",
-      "nextTocUrl": "#pages a:contains(下一页)@href"
+      "nextTocUrl": "#pages a.gr[href*=\"/\"]@href"
     },
     "ruleContent": {
       "content": "div.con@html",

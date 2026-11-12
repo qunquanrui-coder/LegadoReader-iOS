@@ -66,6 +66,29 @@ final class TocPaginationTests: XCTestCase {
         XCTAssertEqual(requested, [firstPage, secondPage, thirdPage])
     }
 
+    func testBundledDeqixsIgnoresPlaceholderNextLinkOnLastCataloguePage() async throws {
+        let json = try XCTUnwrap(Bundle.main.url(forResource: "default_sources", withExtension: "json"))
+        let sources = try JSONDecoder().decode(LossyCodableList<BookSource>.self, from: Data(contentsOf: json)).elements
+        let deqixs = try XCTUnwrap(sources.first { $0.bookSourceUrl == "https://www.deqixs.org" })
+        func page(_ start: Int, next: String) -> String {
+            let links = chapters(start).map { title, url in "<li><a href='\(url)'>\(title)</a></li>" }.joined()
+            return "<ul id='list'>\(links)</ul><div id='pages'><a class='gr' href='\(next)'>下一页</a></div>"
+        }
+        let fixture = TocFixturePages([
+            firstPage: page(1, next: secondPage),
+            secondPage: page(4, next: "#")
+        ])
+        let result = try await LegadoParser.shared.fetchToc(
+            bookUrl: firstPage, source: deqixs,
+            fetchPage: { try await fixture.fetch($0, referer: $1) }
+        )
+        XCTAssertTrue(result.complete)
+        XCTAssertEqual(result.pagesFetched, 2)
+        XCTAssertEqual(result.chapters.map(\.title), chapters(1, count: 6).map { $0.0 })
+        let requested = await fixture.requested
+        XCTAssertEqual(requested, [firstPage, secondPage])
+    }
+
     func testRepeatedPageURLIsNotFetchedTwice() async throws {
         let fixture = TocFixturePages([
             firstPage: tocPage(chapters(1), next: firstPage)

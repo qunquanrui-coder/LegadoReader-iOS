@@ -1,4 +1,4 @@
-The seven web-novel source rules added to default_sources.json on 2026-11-12
+The four web-novel source rules added to default_sources.json on 2026-11-12
 are adapted from shidahuilang/shuyuan-bak's good.json (GPL-3.0). Source records
 retain the upstream location and original notes when present.
 https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json
