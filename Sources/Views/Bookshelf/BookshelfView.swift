@@ -166,8 +166,8 @@ public struct BookshelfView: View {
     private var speechBadgeText: String {
         switch speech.expressiveStyle {
         case .multiRoleDrama: return "剧场分角"
-        case .storyteller: return "情感说书"
-        case .standard: return speech.selectedVoice.shortName
+        case .emotionalSingleVoice: return "情感演绎"
+        case .flat: return speech.selectedVoice.shortName
         }
     }
 

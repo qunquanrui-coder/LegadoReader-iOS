@@ -856,9 +856,9 @@ public struct ReaderView: View {
         switch speech.expressiveStyle {
         case .multiRoleDrama:
             return "🎭 多角色剧场 · 旁白:\(speech.selectedVoice.shortName) / 男女对白自动分角"
-        case .storyteller:
-            return "🎙️ 情感说书 · 对白与情绪语调自适应"
-        case .standard:
+        case .emotionalSingleVoice:
+            return "🎙️ 情感演绎 · 对白与情绪语调自适应"
+        case .flat:
             return "标准播讲 · \(speech.selectedVoice.shortName)"
         }
     }
