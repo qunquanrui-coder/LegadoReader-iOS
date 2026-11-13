@@ -852,6 +852,17 @@ public struct ReaderView: View {
     }
 
     // MARK: - Floating TTS Control Bar (with Neural Voice Actor Selector)
+    private var ttsModeSubtitle: String {
+        switch speech.expressiveStyle {
+        case .multiRoleDrama:
+            return "🎭 多角色剧场 · 旁白:\(speech.selectedVoice.shortName) / 男女对白自动分角"
+        case .storyteller:
+            return "🎙️ 情感说书 · 对白与情绪语调自适应"
+        case .standard:
+            return "标准播讲 · \(speech.selectedVoice.shortName)"
+        }
+    }
+
     private var ttsControlOverlay: some View {
         VStack(spacing: 10) {
             HStack {
@@ -863,9 +874,7 @@ public struct ReaderView: View {
                     VStack(alignment: .leading, spacing: 1.5) {
                         Text("真人情感听书 · 第 \(min(speech.currentParagraphIndex + 1, max(1, formattedParagraphs.count)))/\(max(1, formattedParagraphs.count)) 段")
                             .font(.system(size: 12, weight: .bold))
-                        Text(speech.expressiveMode == .multiRoleDrama
-                             ? "🎭 多角色剧场 · 旁白:\(speech.selectedVoice.shortName) / 男女对白自动分角"
-                             : (speech.expressiveMode == .storyteller ? "🎙️ 情感说书 · 对白与情绪语调自适应" : "标准播讲 · \(speech.selectedVoice.shortName)"))
+                        Text(ttsModeSubtitle)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.secondary)
                             .lineLimit(1)

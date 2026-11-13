@@ -240,7 +240,7 @@ public struct SearchView: View {
     
     // MARK: - Search Status Card
     private var searchStatusPill: some View {
-        let totalCount = max(1, searchSession.total)
+        let totalCount = max(1, storage.bookSources.filter { ($0.enabled ?? true) && SourceSearchPolicy.unsupportedReason($0) == nil }.count)
         let fraction = min(1.0, max(0.05, Double(searchSession.finished) / Double(totalCount)))
         
         return VStack(spacing: 7) {
@@ -296,7 +296,7 @@ public struct SearchView: View {
                 }
             }
             
-            if isSearching && searchSession.total > 0 {
+            if isSearching {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()

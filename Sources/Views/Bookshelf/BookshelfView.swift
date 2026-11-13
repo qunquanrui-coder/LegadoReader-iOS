@@ -163,6 +163,14 @@ public struct BookshelfView: View {
     }
     
     // MARK: - Detached Mini TTS Player Bar
+    private var speechBadgeText: String {
+        switch speech.expressiveStyle {
+        case .multiRoleDrama: return "剧场分角"
+        case .storyteller: return "情感说书"
+        case .standard: return speech.selectedVoice.shortName
+        }
+    }
+
     private var miniTTSPlayerBar: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -187,7 +195,7 @@ public struct BookshelfView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     
-                    Text(speech.expressiveMode == .multiRoleDrama ? "剧场分角" : (speech.expressiveMode == .storyteller ? "情感说书" : speech.selectedVoice.shortName))
+                    Text(speechBadgeText)
                         .font(.system(size: 9.5, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
