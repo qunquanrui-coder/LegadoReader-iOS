@@ -133,19 +133,17 @@ final class SourceExpressionTests: XCTestCase {
         // Verify Legado trailing ### ("only keep formatted replacement of first match") and @js:## compatibility
         let wxsck = try XCTUnwrap(sources.first { $0.bookSourceUrl == "https://www.wxsck.com" })
         let wxsckHTML = """
-        <div class="bookbox"><div class="p10"><div class="bookinfo">
-          <h4 class="bookname"><a href="/book/48123/">诡秘之主</a></h4>
-          <div class="author">作者：爱潜水的乌贼</div>
-          <div class="cat">分类：玄幻</div>
-          <div class="update"><span>最新：</span><a href="/book/48123/1.html">第一章 绯红</a></div>
-          <p>蒸汽与机械的浪潮中，谁能触及非凡？</p>
-        </div></div></div>
+        <table><tbody><tr>
+          <td><a href="/book/48123/">《诡秘之主》</a></td>
+          <td>爱潜水的乌贼</td>
+        </tr></tbody></table>
         """
         let parsedWxsck = try LegadoParser.shared.parseSearch(
             html: wxsckHTML,
             baseUrl: URL(string: "https://www.wxsck.com")!,
             source: wxsck
         )
+        XCTAssertEqual(parsedWxsck.first?.title, "诡秘之主")
         XCTAssertEqual(parsedWxsck.first?.coverUrl, "https://www.wxsck.com/uploads/cover/pic48123.jpg")
 
         // Verify java.toNumChapter bridge
