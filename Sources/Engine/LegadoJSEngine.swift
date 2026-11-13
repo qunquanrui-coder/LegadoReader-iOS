@@ -69,7 +69,7 @@ public final class LegadoJSEngine {
     private static func validate(_ program: [SourceExpressionStatement]) throws {
         let globals = Set(["String", "Number", "parseInt"])
         let methods = Set(["trim", "toLowerCase", "toUpperCase", "toString", "startsWith", "endsWith", "includes", "indexOf", "substring", "slice", "charAt", "split", "join", "replace", "replaceAll", "match"])
-        let native: [String: Set<String>] = ["java": ["put", "get", "encodeURI", "base64Encode", "base64Decode", "md5Encode", "md5Encode16", "t2s", "s2t"], "cache": ["put", "get"], "Math": ["floor", "ceil", "round", "abs", "min", "max"], "JSON": ["parse", "stringify"]]
+        let native: [String: Set<String>] = ["java": ["put", "get", "encodeURI", "base64Encode", "base64Decode", "md5Encode", "md5Encode16", "t2s", "s2t", "toNumChapter"], "cache": ["put", "get"], "Math": ["floor", "ceil", "round", "abs", "min", "max"], "JSON": ["parse", "stringify"]]
         func visit(_ expression: SourceExpression) throws {
             switch expression {
             case .call(let callee, let arguments):
@@ -117,11 +117,14 @@ public final class LegadoJSEngine {
         catch { session.record(.unsupported(error.localizedDescription)); return nil }
     }
 
-    public func replacePattern(_ pattern: String, in text: String, with replacement: String) -> String? {
+    public func replacePattern(_ pattern: String, in text: String, with replacement: String, onlyFirst: Bool = false) -> String? {
         do {
             let evaluator = try SourceExpressionEvaluator(result: text, baseURL: "", sourceURL: "", key: "", page: 1,
                 storedVariables: [:], timeLimit: Self.currentSession?.timeLimit ?? 0.15,
                 cancelled: { Self.currentSession?.isCancelled ?? false })
+            if onlyFirst {
+                return try evaluator.replaceFirstMatchOnly(text, pattern: pattern, replacement: replacement)
+            }
             let expression = SourceExpression.call(.member(.literal(.text(text)), "replaceAll"),
                 [.literal(.regex(pattern, "g")), .literal(.text(replacement))])
             return try evaluator.run([SourceExpressionStatement(assignment: nil, expression: expression, returns: true)])
@@ -177,8 +180,13 @@ public final class LegadoJSEngine {
         // Extract trailing @js:...
         if let jsRange = working.range(of: "@js:", options: .caseInsensitive) {
             let jsCode = String(working[jsRange.upperBound...])
-            scripts.append(jsCode)
-            working = String(working[..<jsRange.lowerBound])
+            let trimmedJS = jsCode.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedJS.hasPrefix("##") {
+                working = String(working[..<jsRange.lowerBound]) + trimmedJS
+            } else {
+                scripts.append(jsCode)
+                working = String(working[..<jsRange.lowerBound])
+            }
         }
         
         return (working.trimmingCharacters(in: .whitespacesAndNewlines), scripts)

@@ -238,46 +238,94 @@ public struct SearchView: View {
         .scrollDismissesKeyboard(.immediately)
     }
     
-    // MARK: - Search Status Pill
+    // MARK: - Search Status Card
     private var searchStatusPill: some View {
-        HStack(spacing: 8) {
-            if isSearching {
-                ProgressView()
-                    .scaleEffect(0.75)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                    .font(.caption)
-            }
-            Text(searchProgress)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            if isSearching {
-                Button("停止") { searchSession.cancel() }
-                    .font(.caption)
-            } else if searchSession.hasMore {
-                Button("继续搜索") { searchSession.continueSearch() }
-                    .font(.caption)
-            }
-            if !searchResults.isEmpty {
-                Button {
-                    hideKeyboard()
-                    searchSession.clear()
-                    searchText = ""
-                } label: {
-                    Text("返回榜单")
+        let totalCount = max(1, searchSession.total)
+        let fraction = min(1.0, max(0.05, Double(searchSession.finished) / Double(totalCount)))
+        
+        return VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                if isSearching {
+                    ProgressView()
+                        .scaleEffect(0.78)
+                } else {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(.green)
+                        .font(.system(size: 13))
+                }
+                Text(searchProgress)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                
+                if !searchResults.isEmpty {
+                    Text("\(searchResults.count) 条结果")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.indigo.opacity(0.12))
+                        .foregroundColor(.indigo)
+                        .clipShape(Capsule())
+                }
+                
+                Spacer()
+                
+                if isSearching {
+                    Button("停止") { searchSession.cancel() }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.orange)
+                } else if searchSession.hasMore {
+                    Button("继续搜索") { searchSession.continueSearch() }
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.indigo)
                 }
+                if !searchResults.isEmpty {
+                    Button {
+                        hideKeyboard()
+                        searchSession.clear()
+                        searchText = ""
+                    } label: {
+                        Text("返回榜单")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.indigo.opacity(0.10))
+                            .foregroundColor(.indigo)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            
+            if isSearching && searchSession.total > 0 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.primary.opacity(0.07))
+                            .frame(height: 3.5)
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.indigo, .purple],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(12, geo.size.width * fraction), height: 3.5)
+                    }
+                }
+                .frame(height: 3.5)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(Capsule())
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.indigo.opacity(0.14), lineWidth: 0.8)
+                )
+        )
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
     }
@@ -346,8 +394,9 @@ public struct SearchView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             ForEach(NovelCategory.allCases) { category in
+                                let isSelected = (selectedCategory == category)
                                 Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
                                         selectedCategory = category
                                     }
                                 } label: {
@@ -357,15 +406,32 @@ public struct SearchView: View {
                                         Text(category.rawValue)
                                             .font(.system(size: 13, weight: .semibold))
                                     }
-                                    .padding(.horizontal, 13)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8.5)
                                     .background(
-                                        selectedCategory == category
-                                            ? Color.indigo
-                                            : Color(.secondarySystemGroupedBackground)
+                                        Group {
+                                            if isSelected {
+                                                LinearGradient(
+                                                    colors: [Color.indigo, Color.purple],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            } else {
+                                                LinearGradient(
+                                                    colors: [Color(.secondarySystemGroupedBackground), Color(.secondarySystemGroupedBackground)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            }
+                                        }
                                     )
-                                    .foregroundColor(selectedCategory == category ? .white : .primary)
+                                    .foregroundColor(isSelected ? .white : .primary)
                                     .clipShape(Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(isSelected ? Color.clear : Color.primary.opacity(0.06), lineWidth: 0.8)
+                                    )
+                                    .shadow(color: isSelected ? Color.indigo.opacity(0.25) : Color.clear, radius: 5, x: 0, y: 2)
                                 }
                                 .buttonStyle(.plain)
                             }

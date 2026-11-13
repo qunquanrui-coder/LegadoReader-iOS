@@ -1,22 +1,56 @@
 import SwiftUI
 
+public enum SourceFilterCategory: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case enabled = "已启用"
+    case curatedNew = "新增精选"
+    case fastVerified = "测速通过"
+    
+    public var id: String { rawValue }
+}
+
 public struct SourceManagerView: View {
     @ObservedObject var storage = StorageManager.shared
     @State private var showingImportSheet = false
     @State private var searchSourceText = ""
+    @State private var selectedFilter: SourceFilterCategory = .all
     @State private var isTestingSpeed = false
     @State private var speedTestStatus = ""
+    @State private var speedTestFraction: Double = 0
     @State private var validationTask: Task<Void, Never>?
     @State private var validationID = UUID()
     @State private var showResetConfirmation = false
     
+    private static let curatedNewURLs: Set<String> = [
+        "https://www.deqixs.org",
+        "https://www.dbxsn.com",
+        "http://www.yetianlian.net",
+        "https://www.wxsck.com",
+        "http://www.xianqihaotianmi.org/"
+    ]
+    
+    private func isCuratedNew(_ source: BookSource) -> Bool {
+        source.displayGroupTag == "新增精选" || Self.curatedNewURLs.contains(source.bookSourceUrl)
+    }
+    
     private var filteredSources: [BookSource] {
-        if searchSourceText.trimmingCharacters(in: .whitespaces).isEmpty {
-            return storage.bookSources
+        let base: [BookSource]
+        switch selectedFilter {
+        case .all:
+            base = storage.bookSources
+        case .enabled:
+            base = storage.bookSources.filter { $0.enabled ?? true }
+        case .curatedNew:
+            base = storage.bookSources.filter { isCuratedNew($0) }
+        case .fastVerified:
+            base = storage.bookSources.filter { ($0.respondTime ?? 99999) < 90000 }
         }
-        return storage.bookSources.filter {
-            $0.bookSourceName.localizedCaseInsensitiveContains(searchSourceText) ||
-            $0.bookSourceUrl.localizedCaseInsensitiveContains(searchSourceText)
+        let query = searchSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return base }
+        return base.filter {
+            $0.bookSourceName.localizedCaseInsensitiveContains(query) ||
+            $0.bookSourceUrl.localizedCaseInsensitiveContains(query) ||
+            ($0.displayGroupTag?.localizedCaseInsensitiveContains(query) ?? false)
         }
     }
     
@@ -27,15 +61,47 @@ public struct SourceManagerView: View {
             VStack(spacing: 0) {
                 // Top Summary Dashboard Card
                 VStack(spacing: 12) {
-                    HStack(spacing: 12) {
+                    HStack(alignment: .center, spacing: 10) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("已启用 \(storage.bookSources.filter { $0.enabled ?? true }.count) / \(storage.bookSources.count) 个书源")
                                 .font(.system(size: 16, weight: .bold, design: .serif))
-                            Text(speedTestStatus.isEmpty ? "使用“斗罗大陆”测试搜索，成功源优先；保留手动启用设置" : speedTestStatus)
+                            Text(speedTestStatus.isEmpty ? "内置 \(storage.bundledSourceCount) 个精选书源（含 5 个新增实测源），支持非破坏性升级与一键测速" : speedTestStatus)
                                 .font(.system(size: 11))
                                 .foregroundColor(isTestingSpeed ? .indigo : .secondary)
+                                .lineLimit(2)
                         }
                         Spacer()
+                    }
+                    
+                    // Quick Metric Chips
+                    HStack(spacing: 8) {
+                        let compatibleCount = storage.bookSources.filter { SourceSearchPolicy.unsupportedReason($0) == nil }.count
+                        let newCuratedCount = storage.bookSources.filter { isCuratedNew($0) }.count
+                        let verifiedFastCount = storage.bookSources.filter { ($0.respondTime ?? 99999) < 90000 }.count
+                        
+                        dashboardStatChip(title: "搜索兼容", value: "\(compatibleCount) 源", color: .indigo)
+                        dashboardStatChip(title: "新增精选", value: "\(newCuratedCount) 源", color: .orange)
+                        dashboardStatChip(title: "测速通过", value: verifiedFastCount > 0 ? "\(verifiedFastCount) 源" : "待测速", color: .teal)
+                    }
+                    
+                    if isTestingSpeed {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.primary.opacity(0.07))
+                                    .frame(height: 4)
+                                Capsule()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.indigo, .purple],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: max(12, geo.size.width * min(1.0, speedTestFraction)), height: 4)
+                            }
+                        }
+                        .frame(height: 4)
                     }
                     
                     HStack(spacing: 10) {
@@ -53,22 +119,30 @@ public struct SourceManagerView: View {
                             }
                             .font(.system(size: 12, weight: .semibold))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.indigo)
+                            .padding(.vertical, 8.5)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.indigo, Color.purple],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
                             .foregroundColor(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
                         
                         Button {
                             cancelValidation()
-                            storage.loadDefaultSources()
-                            speedTestStatus = "已补充内置精选书源，保留导入和自定义规则"
+                            let added = storage.loadDefaultSources()
+                            speedTestStatus = added > 0
+                                ? "已补充 \(added) 个缺失的内置精选书源"
+                                : "内置 \(storage.bundledSourceCount) 个精选书源已齐全，保留自定义设置"
                         } label: {
                             Text("补充内置源")
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color.indigo.opacity(0.14))
+                                .padding(.vertical, 8.5)
+                                .background(Color.indigo.opacity(0.12))
                                 .foregroundColor(.indigo)
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
@@ -84,36 +158,70 @@ public struct SourceManagerView: View {
                                 }
                             }
                         } label: {
-                            Image(systemName: "ellipsis.circle").frame(minWidth: 32, minHeight: 36)
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundColor(.indigo)
+                                .frame(minWidth: 32, minHeight: 36)
                         }
                         .accessibilityLabel("书源重置与恢复")
                     }
                 }
                 .padding(14)
-                .background(Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.indigo.opacity(0.14), lineWidth: 0.8)
+                        )
+                )
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 
-                // Search Bar
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    TextField("搜索书源名称或域名...", text: $searchSourceText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 14))
-                    if !searchSourceText.isEmpty {
-                        Button {
-                            searchSourceText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                // Search Bar & Category Filter Pills
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.indigo)
+                            .font(.system(size: 14, weight: .semibold))
+                        TextField("搜索书源名称、域名或分组...", text: $searchSourceText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 14))
+                        if !searchSourceText.isEmpty {
+                            Button {
+                                searchSourceText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(SourceFilterCategory.allCases) { filter in
+                                let active = (selectedFilter == filter)
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        selectedFilter = filter
+                                    }
+                                } label: {
+                                    Text(filter.rawValue)
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 5.5)
+                                        .background(active ? Color.indigo : Color(.secondarySystemGroupedBackground))
+                                        .foregroundColor(active ? .white : .secondary)
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
-                .padding(10)
-                .background(Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 
@@ -125,19 +233,51 @@ public struct SourceManagerView: View {
                                 .fill((source.enabled ?? true) ? Color.green : Color.gray.opacity(0.4))
                                 .frame(width: 8, height: 8)
                             
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 5) {
                                 HStack(spacing: 6) {
                                     Text(source.bookSourceName)
-                                        .font(.system(size: 15, weight: .semibold))
+                                        .font(.system(size: 15, weight: .bold, design: .serif))
+                                        .lineLimit(1)
+                                    
+                                    if isCuratedNew(source) {
+                                        Text("新增精选")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.orange.opacity(0.16))
+                                            .foregroundColor(.orange)
+                                            .clipShape(Capsule())
+                                    } else if let group = source.displayGroupTag {
+                                        Text(group)
+                                            .font(.system(size: 9, weight: .medium))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.indigo.opacity(0.10))
+                                            .foregroundColor(.indigo)
+                                            .clipShape(Capsule())
+                                    }
                                     
                                     if let ms = source.respondTime {
                                         speedBadge(ms: ms)
                                     }
                                 }
-                                Text(source.bookSourceUrl)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
+                                
+                                HStack(spacing: 6) {
+                                    Text(source.hostDisplayName)
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                    
+                                    if SourceSearchPolicy.unsupportedReason(source) == nil {
+                                        Text("规则完备")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(.teal)
+                                    } else {
+                                        Text("脚本受限")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(.orange)
+                                    }
+                                }
                             }
                             
                             Spacer()
@@ -154,7 +294,7 @@ public struct SourceManagerView: View {
                             .labelsHidden()
                             .tint(.indigo)
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, 3)
                     }
                     .onDelete(perform: deleteSource)
                 }
@@ -195,6 +335,27 @@ public struct SourceManagerView: View {
         }
     }
     
+    @ViewBuilder
+    private func dashboardStatChip(title: String, value: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(title)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundColor(.secondary)
+            Spacer(minLength: 2)
+            Text(value)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundColor(color)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(color.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
     @ViewBuilder
     private func speedBadge(ms: Int) -> some View {
         if ms >= 90000 {
@@ -247,11 +408,13 @@ public struct SourceManagerView: View {
         let id = UUID()
         validationID = id
         isTestingSpeed = true
+        speedTestFraction = 0.04
         speedTestStatus = "正在测试实际搜索结果..."
         validationTask = Task {
             do {
                 let tested = try await SourceValidationPolicy.validate(sources: sources) { done, total in
                     guard validationID == id else { return }
+                    speedTestFraction = Double(done) / Double(max(1, total))
                     speedTestStatus = "已检查 \(done)/\(total) 个书源；可随时停止"
                 }
                 try Task.checkCancellation()

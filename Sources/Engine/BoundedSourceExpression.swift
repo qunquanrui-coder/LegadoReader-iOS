@@ -427,6 +427,9 @@ final class SourceExpressionEvaluator {
                 guard value.string.utf16.count <= 65_536 else { throw SourceScriptError.budgetExceeded }
                 let transform = name == "t2s" ? "Traditional-Simplified" : "Simplified-Traditional"
                 return try bounded(value.string.applyingTransform(StringTransform(transform), reverse: false) ?? value.string)
+            case "toNumChapter":
+                guard value.string.utf16.count <= 65_536 else { throw SourceScriptError.budgetExceeded }
+                return try bounded(Self.convertChineseChapterNumber(value.string))
             default: throw SourceScriptError.unsupported("桥接 \(namespace).\(name)")
             }
         }
@@ -514,8 +517,78 @@ final class SourceExpressionEvaluator {
         default: throw SourceScriptError.unsupported("方法 \(name)")
         }
     }
+    private static func hasUnsafeBraceQuantifier(_ pattern: String) -> Bool {
+        guard pattern.contains("{") else { return false }
+        guard let regex = try? NSRegularExpression(pattern: "\\{([^}]*)\\}") else { return true }
+        let nsRange = NSRange(pattern.startIndex..., in: pattern)
+        let matches = regex.matches(in: pattern, range: nsRange)
+        let braceCount = pattern.filter { $0 == "{" || $0 == "}" }.count
+        guard matches.count * 2 == braceCount else { return true }
+        for match in matches {
+            guard let innerRange = Range(match.range(at: 1), in: pattern) else { return true }
+            let parts = pattern[innerRange].split(separator: ",", omittingEmptySubsequences: false)
+            guard (1...2).contains(parts.count) else { return true }
+            for part in parts where !part.isEmpty {
+                guard let val = Int(part), (0...64).contains(val) else { return true }
+            }
+        }
+        return false
+    }
+
+    private static func convertChineseChapterNumber(_ input: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "第([零〇一二两三四五六七八九十百千万]+)([章节回卷集部篇])") else {
+            return input
+        }
+        let nsRange = NSRange(input.startIndex..., in: input)
+        guard let match = regex.firstMatch(in: input, range: nsRange),
+              let fullRange = Range(match.range(at: 0), in: input),
+              let numRange = Range(match.range(at: 1), in: input),
+              let unitRange = Range(match.range(at: 2), in: input),
+              let number = parseChineseNumeral(String(input[numRange])) else {
+            return input
+        }
+        var output = input
+        output.replaceSubrange(fullRange, with: "第\(number)\(input[unitRange])")
+        return output
+    }
+
+    private static func parseChineseNumeral(_ text: String) -> Int? {
+        let digits: [Character: Int] = [
+            "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
+            "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9
+        ]
+        let units: [Character: Int] = ["十": 10, "百": 100, "千": 1000, "万": 10000]
+        if text.allSatisfy({ digits[$0] != nil }) {
+            var direct = 0
+            for ch in text { direct = direct * 10 + (digits[ch] ?? 0) }
+            return direct
+        }
+        var total = 0
+        var section = 0
+        var current = 0
+        for ch in text {
+            if let d = digits[ch] {
+                current = d
+            } else if let u = units[ch] {
+                if u == 10000 {
+                    section = (section + current) * u
+                    total += section
+                    section = 0
+                } else {
+                    let mult = (current == 0 && u == 10 && section == 0) ? 1 : current
+                    section += mult * u
+                }
+                current = 0
+            } else {
+                return nil
+            }
+        }
+        let result = total + section + current
+        return result > 0 ? result : nil
+    }
+
     private func boundedMatches(_ text: String, pattern: String, flags: String, all: Bool) throws -> [NSTextCheckingResult] {
-        guard pattern.utf8.count <= 512, !pattern.contains("{"), pattern.filter({ $0 == "(" }).count <= 32 else {
+        guard pattern.utf8.count <= 512, !Self.hasUnsafeBraceQuantifier(pattern), pattern.filter({ $0 == "(" }).count <= 32 else {
             throw SourceScriptError.unsupported("正则复杂度或计数重复")
         }
         var options: NSRegularExpression.Options = []
@@ -537,6 +610,15 @@ final class SourceExpressionEvaluator {
         try tick()
         return matches
     }
+    func replaceFirstMatchOnly(_ text: String, pattern: String, replacement: String) throws -> String {
+        let matches = try boundedMatches(text, pattern: pattern, flags: "", all: false)
+        guard let match = matches.first else { return "" }
+        try tick()
+        let expression = try NSRegularExpression(pattern: pattern)
+        let output = expression.replacementString(for: match, in: text, offset: 0, template: replacement)
+        return try bounded(output).string
+    }
+
     private func regexReplace(_ text: String, pattern: String, flags: String, replacement: String, all: Bool) throws -> SourceExpressionValue {
         let matches = try boundedMatches(text, pattern: pattern, flags: flags, all: all || flags.contains("g"))
         guard !matches.isEmpty else { return .text(text) }

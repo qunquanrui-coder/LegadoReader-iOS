@@ -83,8 +83,8 @@ struct SettingsView: View {
                             Text(ReaderConfig.isDuoEditionBuild ? "风读小说 · iPhone Duo 专享版" : "风读小说 · 纯净阅读版")
                                 .font(.system(size: 18, weight: .bold, design: .serif))
                             Text(ReaderConfig.isDuoEditionBuild
-                                 ? "v\(appVersion) · 支持 5.4\" 外屏 & 7.6\" 折叠内屏双页对开 · 锁屏听书"
-                                 : "v\(appVersion) · 真人情感语音锁屏听书 · 全本离线缓存")
+                                 ? "v\(appVersion) · 东方雅致书房 · 双页对开 & 多角色情感听书"
+                                 : "v\(appVersion) · 东方雅致书房 · 多角色情感听书 & 全本离线缓存")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

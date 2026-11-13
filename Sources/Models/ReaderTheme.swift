@@ -226,62 +226,103 @@ public struct BookCoverView: View {
     public var width: CGFloat? = nil
     public var height: CGFloat? = nil
     public var cornerRadius: CGFloat = 8
+    public var badgeText: String? = nil
     
-    public init(title: String, author: String, coverUrl: String?, width: CGFloat? = nil, height: CGFloat? = nil, cornerRadius: CGFloat = 8) {
+    public init(
+        title: String,
+        author: String,
+        coverUrl: String?,
+        width: CGFloat? = nil,
+        height: CGFloat? = nil,
+        cornerRadius: CGFloat = 8,
+        badgeText: String? = nil
+    ) {
         self.title = title
         self.author = author
         self.coverUrl = coverUrl
         self.width = width
         self.height = height
         self.cornerRadius = cornerRadius
+        self.badgeText = badgeText
     }
     
     private var palette: [Color] {
         let palettes: [[Color]] = [
-            [Color(red: 0.18, green: 0.25, blue: 0.38), Color(red: 0.10, green: 0.14, blue: 0.24)], // 黛蓝
-            [Color(red: 0.48, green: 0.19, blue: 0.20), Color(red: 0.28, green: 0.10, blue: 0.12)], // 胭脂红
-            [Color(red: 0.18, green: 0.34, blue: 0.29), Color(red: 0.10, green: 0.20, blue: 0.17)], // 松石绿
-            [Color(red: 0.38, green: 0.27, blue: 0.20), Color(red: 0.22, green: 0.15, blue: 0.11)], // 檀木棕
-            [Color(red: 0.29, green: 0.22, blue: 0.42), Color(red: 0.16, green: 0.12, blue: 0.26)], // 暮山紫
-            [Color(red: 0.22, green: 0.31, blue: 0.35), Color(red: 0.12, green: 0.18, blue: 0.22)]  // 苍青
+            [Color(red: 0.16, green: 0.24, blue: 0.37), Color(red: 0.09, green: 0.13, blue: 0.22)], // 黛蓝织锦
+            [Color(red: 0.49, green: 0.18, blue: 0.20), Color(red: 0.27, green: 0.09, blue: 0.11)], // 朱砂胭脂
+            [Color(red: 0.16, green: 0.33, blue: 0.28), Color(red: 0.09, green: 0.19, blue: 0.16)], // 苍松翠竹
+            [Color(red: 0.39, green: 0.27, blue: 0.19), Color(red: 0.21, green: 0.14, blue: 0.10)], // 沉香紫檀
+            [Color(red: 0.28, green: 0.21, blue: 0.41), Color(red: 0.15, green: 0.11, blue: 0.25)], // 暮山烟紫
+            [Color(red: 0.20, green: 0.30, blue: 0.35), Color(red: 0.11, green: 0.17, blue: 0.21)]  // 天青汝釉
         ]
         let hash = abs(title.hashValue)
         return palettes[hash % palettes.count]
     }
     
     public var body: some View {
-        ZStack {
-            if let coverUrl = coverUrl,
-               !coverUrl.isEmpty,
-               let url = URL(string: coverUrl) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    default:
-                        artisticFallbackCover
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                if let coverUrl = coverUrl,
+                   !coverUrl.isEmpty,
+                   let url = URL(string: coverUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .transition(.opacity.animation(.easeOut(duration: 0.2)))
+                        default:
+                            artisticFallbackCover
+                        }
                     }
+                } else {
+                    artisticFallbackCover
                 }
-            } else {
-                artisticFallbackCover
-            }
-            
-            // Realistic Book Spine Crease & Inner Highlight Overlay
-            HStack(spacing: 0) {
+                
+                // Realistic Book Spine Crease & Silk Sheen Overlay
+                HStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.28),
+                            Color.black.opacity(0.26),
+                            Color.white.opacity(0.14),
+                            Color.clear
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 11)
+                    Spacer()
+                }
+                
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.25),
-                        Color.black.opacity(0.22),
-                        Color.white.opacity(0.12),
-                        Color.clear
+                        Color.white.opacity(0.08),
+                        Color.clear,
+                        Color.black.opacity(0.16)
                     ],
-                    startPoint: .leading,
-                    endPoint: .trailing
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
-                .frame(width: 10)
-                Spacer()
+                .allowsHitTesting(false)
+            }
+            
+            if let badgeText, !badgeText.isEmpty {
+                Text(badgeText)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundColor(Color(red: 0.98, green: 0.94, blue: 0.85))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(
+                        Capsule()
+                            .fill(Color.black.opacity(0.66))
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(red: 0.90, green: 0.78, blue: 0.56).opacity(0.45), lineWidth: 0.6)
+                            )
+                    )
+                    .padding(5)
             }
         }
         .frame(width: width, height: height)
@@ -289,9 +330,24 @@ public struct BookCoverView: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.28),
+                            Color(red: 0.88, green: 0.78, blue: 0.60).opacity(0.22),
+                            Color.black.opacity(0.20)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.9
+                )
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 4)
+        .shadow(color: Color.black.opacity(0.20), radius: 7, x: 0, y: 4)
+    }
+    
+    private var isCompactCover: Bool {
+        (width ?? 100) < 75
     }
     
     private var artisticFallbackCover: some View {
@@ -302,39 +358,72 @@ public struct BookCoverView: View {
                 endPoint: .bottomTrailing
             )
             
-            // Subtle inner vintage frame
-            RoundedRectangle(cornerRadius: max(4, cornerRadius - 3))
-                .stroke(Color(red: 0.88, green: 0.78, blue: 0.62).opacity(0.35), lineWidth: 1)
-                .padding(6)
+            // Traditional Thread-Bound Binding Marks on Left Spine
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        Spacer()
+                        Rectangle()
+                            .fill(Color(red: 0.90, green: 0.82, blue: 0.68).opacity(0.26))
+                            .frame(width: 6, height: 1)
+                    }
+                    Spacer()
+                }
+                .frame(width: 8)
+                Spacer()
+            }
             
-            VStack(spacing: 6) {
-                // Classic white/cream book plate
-                VStack(spacing: 4) {
+            // Subtle Double Gold-Leaf Inner Frame (描金内框)
+            RoundedRectangle(cornerRadius: max(4, cornerRadius - 3))
+                .stroke(Color(red: 0.90, green: 0.80, blue: 0.62).opacity(0.38), lineWidth: 0.9)
+                .padding(5)
+            
+            VStack(spacing: 5) {
+                // Classic Xuan-Paper Bookplate (宣纸藏书签)
+                VStack(spacing: 3) {
+                    Rectangle()
+                        .fill(Color(red: 0.72, green: 0.24, blue: 0.20).opacity(0.65))
+                        .frame(width: isCompactCover ? 16 : 24, height: 1.2)
+                        .padding(.top, 5)
+                    
                     Text(title)
-                        .font(.system(size: (width ?? 100) < 75 ? 11 : 13, weight: .bold, design: .serif))
-                        .foregroundColor(Color(red: 0.16, green: 0.14, blue: 0.12))
+                        .font(.system(size: isCompactCover ? 10.5 : 13, weight: .bold, design: .serif))
+                        .foregroundColor(Color(red: 0.15, green: 0.13, blue: 0.11))
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 5)
+                        .padding(.bottom, 6)
                 }
                 .frame(maxWidth: .infinity)
                 .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(red: 0.96, green: 0.94, blue: 0.89))
-                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                    RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.98, green: 0.96, blue: 0.91),
+                                    Color(red: 0.94, green: 0.90, blue: 0.83)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                                .stroke(Color(red: 0.76, green: 0.64, blue: 0.48).opacity(0.45), lineWidth: 0.6)
+                        )
+                        .shadow(color: .black.opacity(0.22), radius: 2.5, x: 0, y: 1.5)
                 )
-                .padding(.horizontal, 10)
-                .padding(.top, 12)
+                .padding(.horizontal, isCompactCover ? 8 : 10)
+                .padding(.top, isCompactCover ? 9 : 12)
                 
                 Spacer()
                 
-                Text(author)
-                    .font(.system(size: 9, weight: .medium, design: .serif))
-                    .foregroundColor(Color(red: 0.92, green: 0.85, blue: 0.72).opacity(0.9))
+                Text(author.isEmpty ? "风读典藏" : author)
+                    .font(.system(size: isCompactCover ? 8.5 : 9.5, weight: .medium, design: .serif))
+                    .foregroundColor(Color(red: 0.93, green: 0.86, blue: 0.73).opacity(0.92))
                     .lineLimit(1)
                     .padding(.horizontal, 8)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, isCompactCover ? 7 : 10)
             }
         }
     }

@@ -38,31 +38,57 @@ public struct BookshelfView: View {
                                 .padding(.top, 8)
                         }
                         
-                        // Section Header
-                        HStack {
-                            Text("全部藏书")
-                                .font(.system(size: 18, weight: .bold, design: .serif))
-                            Text("\(storage.bookshelf.count)")
-                                .font(.system(size: 12, weight: .bold))
+                        // Section Header & Studio Ribbon
+                        HStack(spacing: 10) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "books.vertical.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(
+                                        LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    )
+                                Text("全部藏书")
+                                    .font(.system(size: 18, weight: .bold, design: .serif))
+                            }
+                            
+                            Text("\(storage.bookshelf.count) 册")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
+                                .padding(.vertical, 3)
                                 .background(Color.indigo.opacity(0.12))
                                 .foregroundColor(.indigo)
+                                .clipShape(Capsule())
+                            
+                            let activeSources = storage.bookSources.filter { $0.enabled != false }.count
+                            Text("\(activeSources) 源在线")
+                                .font(.system(size: 11, weight: .medium))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.teal.opacity(0.10))
+                                .foregroundColor(.teal)
                                 .clipShape(Capsule())
                             
                             Spacer()
                             
                             Button {
-                                withAnimation(.spring(response: 0.3)) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                     isGridView.toggle()
                                 }
                             } label: {
-                                Image(systemName: isGridView ? "list.bullet" : "square.grid.3x2")
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(.secondary)
-                                    .padding(8)
-                                    .background(Color(.secondarySystemGroupedBackground))
-                                    .clipShape(Circle())
+                                HStack(spacing: 4) {
+                                    Image(systemName: isGridView ? "list.bullet" : "square.grid.3x2")
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text(isGridView ? "列表" : "宫格")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color(.secondarySystemGroupedBackground))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.8)
+                                )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -139,15 +165,36 @@ public struct BookshelfView: View {
     // MARK: - Detached Mini TTS Player Bar
     private var miniTTSPlayerBar: some View {
         HStack(spacing: 12) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 28))
-                .foregroundColor(.indigo)
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.indigo, Color.purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 36, height: 36)
+                Image(systemName: speech.isPaused ? "headphones" : "waveform")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white)
+            }
             
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(speech.currentBookTitle) · \(speech.selectedVoice.shortName)")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(speech.currentBookTitle)
+                        .font(.system(size: 13, weight: .bold, design: .serif))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    
+                    Text(speech.expressiveMode == .multiRoleDrama ? "剧场分角" : (speech.expressiveMode == .storyteller ? "情感说书" : speech.selectedVoice.shortName))
+                        .font(.system(size: 9.5, weight: .bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Color.indigo.opacity(0.15))
+                        .foregroundColor(.indigo)
+                        .clipShape(Capsule())
+                }
                 Text(speech.currentChapterTitle)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
@@ -167,36 +214,65 @@ public struct BookshelfView: View {
                 speech.resumeOrPause()
             } label: {
                 Image(systemName: speech.isPaused ? "play.circle.fill" : "pause.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundColor(.indigo)
+                    .font(.system(size: 29))
+                    .foregroundStyle(
+                        LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
             }
             
             Button {
                 speech.skipNext()
             } label: {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.primary.opacity(0.85))
+                    .frame(width: 28, height: 28)
+                    .background(Color.primary.opacity(0.06))
+                    .clipShape(Circle())
             }
             
             Button {
                 speech.stop()
             } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(Circle())
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.indigo.opacity(0.28), Color.purple.opacity(0.16), Color.clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
     }
     
     // MARK: - Hero Continue Reading Banner
     private func continueReadingCard(book: Book) -> some View {
-        Button {
+        let savedPos = storage.getSavedReadingPosition(for: book)
+        let chapIdx = max(book.currentChapterIndex, savedPos.chapterIndex)
+        let paraNum = (savedPos.chapterIndex == chapIdx ? savedPos.paragraphIndex : (book.currentParagraphIndex ?? 0)) + 1
+        let progressFraction: Double = book.totalChapters > 0
+            ? min(1.0, max(0.02, Double(chapIdx + 1) / Double(book.totalChapters)))
+            : 0.08
+        let progressPercent: Int = book.totalChapters > 0
+            ? min(100, max(1, Int((Double(chapIdx + 1) / Double(book.totalChapters)) * 100)))
+            : 0
+
+        return Button {
             openBook(book)
         } label: {
             HStack(spacing: 16) {
@@ -204,61 +280,98 @@ public struct BookshelfView: View {
                     title: book.title,
                     author: book.author,
                     coverUrl: book.coverUrl,
-                    width: 72,
-                    height: 98,
-                    cornerRadius: 8
+                    width: 78,
+                    height: 108,
+                    cornerRadius: 9,
+                    badgeText: progressPercent > 0 ? "\(progressPercent)%" : nil
                 )
                 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 6) {
-                        Text("最近阅读")
-                            .font(.system(size: 10, weight: .bold))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.18))
-                            .foregroundColor(.orange)
-                            .clipShape(Capsule())
+                        HStack(spacing: 3) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("正在品读")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2.5)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.orange.opacity(0.20), Color.pink.opacity(0.14)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.orange)
+                        .clipShape(Capsule())
                         
                         Text(book.sourceName)
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color.indigo.opacity(0.08))
+                            .foregroundColor(.indigo)
+                            .clipShape(Capsule())
                             .lineLimit(1)
                     }
                     
                     Text(book.title)
-                        .font(.system(size: 17, weight: .bold, design: .serif))
+                        .font(.system(size: 18, weight: .bold, design: .serif))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     
-                    Text(book.currentChapterTitle ?? "点击开始阅读第一章")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.indigo.opacity(0.75))
+                        Text(book.currentChapterTitle ?? "点击开始阅读第一章")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
                     
-                    Spacer(minLength: 4)
+                    // Visual Reading Progress Bar
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.primary.opacity(0.08))
+                                .frame(height: 5)
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.indigo, Color.purple, Color.orange.opacity(0.85)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: max(12, geo.size.width * progressFraction), height: 5)
+                        }
+                    }
+                    .frame(height: 5)
+                    .padding(.vertical, 1)
                     
-                    HStack {
-                        let savedPos = storage.getSavedReadingPosition(for: book)
-                        let chapIdx = max(book.currentChapterIndex, savedPos.chapterIndex)
-                        let paraNum = (savedPos.chapterIndex == chapIdx ? savedPos.paragraphIndex : (book.currentParagraphIndex ?? 0)) + 1
+                    HStack(alignment: .center) {
                         if book.totalChapters > 0 {
-                            let pct = min(100, Int((Double(chapIdx + 1) / Double(book.totalChapters)) * 100))
-                            Text("已读 \(pct)% · 本章第 \(paraNum) 段")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.indigo)
+                            Text("第 \(chapIdx + 1)/\(book.totalChapters) 章 · 第 \(paraNum) 段")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
                         } else {
-                            Text("本章第 \(paraNum) 段 · 继续阅读")
+                            Text("本章第 \(paraNum) 段 · 进度已同步")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.indigo)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
                         }
-                        Spacer()
-                        HStack(spacing: 3) {
+                        Spacer(minLength: 6)
+                        HStack(spacing: 4) {
                             Text("继续阅读")
-                            Image(systemName: "chevron.right")
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 10, weight: .bold))
                         }
-                        .font(.system(size: 11, weight: .semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5.5)
                         .background(
                             LinearGradient(
                                 colors: [Color.indigo, Color.purple],
@@ -268,14 +381,30 @@ public struct BookshelfView: View {
                         )
                         .foregroundColor(.white)
                         .clipShape(Capsule())
+                        .shadow(color: Color.indigo.opacity(0.25), radius: 4, x: 0, y: 2)
                     }
                 }
             }
-            .padding(14)
+            .padding(15)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Color(.secondarySystemGroupedBackground))
-                    .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [
+                                        Color.indigo.opacity(0.22),
+                                        Color.orange.opacity(0.15),
+                                        Color.primary.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.07), radius: 12, x: 0, y: 5)
             )
         }
         .buttonStyle(.plain)
@@ -363,17 +492,26 @@ public struct BookshelfView: View {
 struct BookshelfGridItem: View {
     let book: Book
     
+    private var badgeLabel: String? {
+        if book.totalChapters > 0 {
+            let pct = min(100, max(1, Int((Double(book.currentChapterIndex + 1) / Double(book.totalChapters)) * 100)))
+            return "\(pct)%"
+        }
+        return book.currentChapterIndex > 0 ? "第\(book.currentChapterIndex + 1)章" : nil
+    }
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             BookCoverView(
                 title: book.title,
                 author: book.author,
                 coverUrl: book.coverUrl,
-                cornerRadius: 8
+                cornerRadius: 9,
+                badgeText: badgeLabel
             )
             
             Text(book.title)
-                .font(.system(size: 13, weight: .semibold, design: .serif))
+                .font(.system(size: 13.5, weight: .bold, design: .serif))
                 .lineLimit(1)
                 .foregroundColor(.primary)
             
@@ -388,42 +526,90 @@ struct BookshelfGridItem: View {
 struct BookshelfListItem: View {
     let book: Book
     
+    private var progressFraction: Double {
+        guard book.totalChapters > 0 else { return 0 }
+        return min(1.0, max(0.03, Double(book.currentChapterIndex + 1) / Double(book.totalChapters)))
+    }
+    
     var body: some View {
         HStack(spacing: 14) {
             BookCoverView(
                 title: book.title,
                 author: book.author,
                 coverUrl: book.coverUrl,
-                width: 56,
-                height: 76,
-                cornerRadius: 6
+                width: 58,
+                height: 80,
+                cornerRadius: 7
             )
             
-            VStack(alignment: .leading, spacing: 5) {
-                Text(book.title)
-                    .font(.system(size: 15, weight: .bold, design: .serif))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(book.title)
+                        .font(.system(size: 15.5, weight: .bold, design: .serif))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    Text(book.sourceName)
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.indigo.opacity(0.10))
+                        .foregroundColor(.indigo)
+                        .clipShape(Capsule())
+                        .lineLimit(1)
+                }
                 
-                Text("\(book.author) · \(book.sourceName)")
+                Text(book.author.isEmpty ? "佚名" : book.author)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                 
-                Text(book.currentChapterTitle ?? "尚未开始阅读")
-                    .font(.system(size: 12))
-                    .foregroundColor(.indigo)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Image(systemName: "book.pages")
+                        .font(.system(size: 10))
+                        .foregroundColor(.indigo.opacity(0.8))
+                    Text(book.currentChapterTitle ?? "尚未开始阅读")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.indigo)
+                        .lineLimit(1)
+                }
+                
+                if book.totalChapters > 0 {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.primary.opacity(0.07))
+                                .frame(height: 3.5)
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.indigo, .purple],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: max(8, geo.size.width * progressFraction), height: 3.5)
+                        }
+                    }
+                    .frame(height: 3.5)
+                }
             }
-            Spacer()
+            
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary.opacity(0.5))
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary.opacity(0.45))
         }
-        .padding(12)
+        .padding(13)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.primary.opacity(0.05), lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
         )
     }
 }

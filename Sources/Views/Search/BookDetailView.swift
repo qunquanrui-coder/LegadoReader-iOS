@@ -12,6 +12,7 @@ public struct BookDetailView: View {
     @State private var showRemoveAlert = false
     @State private var isCachingFullBook = false
     @State private var fullCacheStatusText: String? = nil
+    @State private var fullCacheProgressFraction: Double = 0
     @State private var cacheTask: Task<Void, Never>? = nil
     @State private var cacheRunID = UUID()
     @State private var tocTask: Task<Void, Never>? = nil
@@ -93,6 +94,17 @@ public struct BookDetailView: View {
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                         }
+                        
+                        if !chapters.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: isTocComplete ? "checkmark.seal.fill" : "clock.badge.exclamationmark")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(isTocComplete ? .teal : .orange)
+                                Text(isTocComplete ? "已解析完整目录 · 共 \(chapters.count) 章" : "目录预览 · 已加载 \(chapters.count) 章")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(isTocComplete ? .teal : .orange)
+                            }
+                        }
                     }
                     Spacer()
                 }
@@ -100,7 +112,18 @@ public struct BookDetailView: View {
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(Color(.secondarySystemGroupedBackground))
-                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color.indigo.opacity(0.20), Color.orange.opacity(0.12), Color.clear],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 4)
                 )
                 
                 // Primary Action Buttons
@@ -178,22 +201,49 @@ public struct BookDetailView: View {
                 }
                 
                 if let status = fullCacheStatusText {
-                    HStack(spacing: 8) {
-                        if isCachingFullBook {
-                            ProgressView().scaleEffect(0.75)
-                        } else {
-                            Image(systemName: "checkmark.seal.fill")
-                                .foregroundColor(.green)
+                    VStack(spacing: 7) {
+                        HStack(spacing: 8) {
+                            if isCachingFullBook {
+                                ProgressView().scaleEffect(0.75)
+                            } else {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .foregroundColor(.green)
+                            }
+                            Text(status)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.indigo)
+                            Spacer()
                         }
-                        Text(status)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.indigo)
-                        Spacer()
+                        if isCachingFullBook || fullCacheProgressFraction > 0 {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule()
+                                        .fill(Color.primary.opacity(0.07))
+                                        .frame(height: 4)
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [.indigo, .purple, .orange],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                        .frame(width: max(10, geo.size.width * min(1.0, fullCacheProgressFraction)), height: 4)
+                                }
+                            }
+                            .frame(height: 4)
+                        }
                     }
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color(.secondarySystemGroupedBackground))
-                    .clipShape(Capsule())
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.indigo.opacity(0.14), lineWidth: 0.8)
+                            )
+                    )
                 }
                 
                 // Synopsis Card
@@ -401,6 +451,7 @@ public struct BookDetailView: View {
         guard !chapters.isEmpty else { return }
         addCurrentBookToShelf()
         isCachingFullBook = true
+        fullCacheProgressFraction = 0.02
         let allChapters = chapters
         let total = allChapters.count
         // Snapshot the completeness together with the chapter list: a TOC refresh during the
@@ -446,9 +497,11 @@ public struct BookDetailView: View {
                 completed += savedCount
                 let doneNow = completed
                 let pct = Int(Double(doneNow) / Double(max(1, total)) * 100.0)
+                let frac = Double(doneNow) / Double(max(1, total))
                 guard !Task.isCancelled, storage.acceptsBookWrite(writeToken) else { return }
                 await MainActor.run {
                     guard self.cacheRunID == runID, !Task.isCancelled else { return }
+                    self.fullCacheProgressFraction = frac
                     self.fullCacheStatusText = "正在全本缓存 \(doneNow)/\(total) 章 (\(pct)%)"
                 }
             }
@@ -457,6 +510,7 @@ public struct BookDetailView: View {
             await MainActor.run {
                 guard self.cacheRunID == runID, !Task.isCancelled, storage.acceptsBookWrite(writeToken) else { return }
                 self.isCachingFullBook = false
+                self.fullCacheProgressFraction = Double(savedTotal) / Double(max(1, total))
                 if TocUpdatePolicy.isFullCacheComplete(savedCount: savedTotal, totalCount: total,
                                                        tocComplete: tocCompleteSnapshot) {
                     self.fullCacheStatusText = "全本 \(total) 章完整缓存完成"

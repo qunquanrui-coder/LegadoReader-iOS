@@ -29,7 +29,9 @@ public struct BookSource: Identifiable, Codable, Equatable, Hashable {
     public var bookSourceName: String
     public var bookSourceUrl: String
     public var bookSourceType: Int?
+    public var bookSourceGroup: String?
     public var bookSourceComment: String?
+    public var header: String?
     public var enabled: Bool?
     public var respondTime: Int?
     public var searchUrl: String?
@@ -42,7 +44,9 @@ public struct BookSource: Identifiable, Codable, Equatable, Hashable {
         bookSourceName: String,
         bookSourceUrl: String,
         bookSourceType: Int? = 0,
+        bookSourceGroup: String? = nil,
         bookSourceComment: String? = nil,
+        header: String? = nil,
         enabled: Bool? = true,
         searchUrl: String? = nil,
         ruleSearch: RuleSearch? = nil,
@@ -53,13 +57,31 @@ public struct BookSource: Identifiable, Codable, Equatable, Hashable {
         self.bookSourceName = bookSourceName
         self.bookSourceUrl = bookSourceUrl
         self.bookSourceType = bookSourceType
+        self.bookSourceGroup = bookSourceGroup
         self.bookSourceComment = bookSourceComment
+        self.header = header
         self.enabled = enabled
         self.searchUrl = searchUrl
         self.ruleSearch = ruleSearch
         self.ruleBookInfo = ruleBookInfo
         self.ruleToc = ruleToc
         self.ruleContent = ruleContent
+    }
+
+    public var displayGroupTag: String? {
+        guard let raw = bookSourceGroup?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              !raw.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return raw
+    }
+
+    public var hostDisplayName: String {
+        if let host = URL(string: bookSourceUrl)?.host, !host.isEmpty {
+            return host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+        }
+        return bookSourceUrl
     }
 }
 

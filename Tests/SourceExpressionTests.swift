@@ -115,4 +115,44 @@ final class SourceExpressionTests: XCTestCase {
         )
         XCTAssertNotNil(SourceSearchPolicy.unsupportedReason(badFieldSource))
     }
+
+    func testAllBundledSourcesPassSearchPolicyAndSupportCoverRegexRules() throws {
+        let jsonURL = try XCTUnwrap(Bundle.main.url(forResource: "default_sources", withExtension: "json"))
+        let sources = try JSONDecoder().decode(LossyCodableList<BookSource>.self, from: Data(contentsOf: jsonURL)).elements
+        XCTAssertEqual(sources.count, 25)
+
+        for source in sources {
+            XCTAssertNil(
+                SourceSearchPolicy.unsupportedReason(source),
+                "Bundled source \(source.bookSourceName) (\(source.bookSourceUrl)) should be supported by SourceSearchPolicy"
+            )
+            XCTAssertNil(source.respondTime, "Bundled sources should not ship pre-baked respondTime badges")
+            XCTAssertNotNil(source.displayGroupTag)
+        }
+
+        // Verify Legado trailing ### ("only keep formatted replacement of first match") and @js:## compatibility
+        let wxsck = try XCTUnwrap(sources.first { $0.bookSourceUrl == "https://www.wxsck.com" })
+        let wxsckHTML = """
+        <div class="bookbox"><div class="p10"><div class="bookinfo">
+          <h4 class="bookname"><a href="/book/48123/">诡秘之主</a></h4>
+          <div class="author">作者：爱潜水的乌贼</div>
+          <div class="cat">分类：玄幻</div>
+          <div class="update"><span>最新：</span><a href="/book/48123/1.html">第一章 绯红</a></div>
+          <p>蒸汽与机械的浪潮中，谁能触及非凡？</p>
+        </div></div></div>
+        """
+        let parsedWxsck = try LegadoParser.shared.parseSearch(
+            html: wxsckHTML,
+            baseUrl: URL(string: "https://www.wxsck.com")!,
+            source: wxsck
+        )
+        XCTAssertEqual(parsedWxsck.first?.coverUrl, "https://www.wxsck.com/uploads/cover/pic48123.jpg")
+
+        // Verify java.toNumChapter bridge
+        let numChap = LegadoJSEngine.shared.evaluate(
+            script: "java.toNumChapter(result)",
+            result: "第一百二十三章 绯红之主"
+        )
+        XCTAssertEqual(numChap, "第123章 绯红之主")
+    }
 }

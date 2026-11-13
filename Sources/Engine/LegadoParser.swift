@@ -193,7 +193,13 @@ public class LegadoParser {
         let regexParts = cleanRaw.components(separatedBy: "##")
         var selectorPart = regexParts[0].trimmingCharacters(in: .whitespacesAndNewlines)
         let regexPattern: String? = regexParts.count > 1 && !regexParts[1].isEmpty ? regexParts[1] : nil
-        let regexReplacement: String = regexParts.count > 2 ? regexParts[2] : ""
+        let onlyFirstRegex = regexParts.count > 3 || cleanRaw.hasSuffix("###")
+        var regexReplacement: String = regexParts.count > 2 ? regexParts[2] : ""
+        if onlyFirstRegex {
+            while regexReplacement.hasSuffix("#") {
+                regexReplacement.removeLast()
+            }
+        }
         
         // Handle XPath attribute suffix like /@content or /@href or /text()
         var attribute = "text"
@@ -261,7 +267,7 @@ public class LegadoParser {
         var result = extractedValues.joined(separator: "\n")
         
         if let pattern = regexPattern {
-            guard let replaced = LegadoJSEngine.shared.replacePattern(pattern, in: result, with: regexReplacement) else { return nil }; result = replaced
+            guard let replaced = LegadoJSEngine.shared.replacePattern(pattern, in: result, with: regexReplacement, onlyFirst: onlyFirstRegex) else { return nil }; result = replaced
         }
         
         // Pipe extracted selector result through any trailing <js>...</js> or @js: scripts
@@ -555,6 +561,7 @@ public class LegadoParser {
 
         // 1. Explicit Legado `nextTocUrl` rule (selector / @js / text.下一页 ...)
         if let rule = source.ruleToc?.nextTocUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !rule.isEmpty,
+           LegadoJSEngine.shared.unsupportedRuleReason(rule) == nil,
            let raw = extractValue(from: doc, rule: rule, baseUrl: baseUrl),
            let resolved = resolveURLString(raw, base: baseUrl) {
             return resolved
