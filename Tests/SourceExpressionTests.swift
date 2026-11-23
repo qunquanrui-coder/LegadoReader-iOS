@@ -152,5 +152,24 @@ final class SourceExpressionTests: XCTestCase {
             result: "第一百二十三章 绯红之主"
         )
         XCTAssertEqual(numChap, "第123章 绯红之主")
+
+        // Verify custom header filtering & GBK encodedKeyOverride in renderUrlTemplate
+        var req = URLRequest(url: URL(string: "https://fixture.invalid")!)
+        NetworkManager.applyCustomHeaders(
+            from: #"{"User-Agent":"CustomMobileUA/1.0","Cookie":"evil=1","Accept-Language":"zh-CN"}"#,
+            to: &req
+        )
+        XCTAssertEqual(req.value(forHTTPHeaderField: "User-Agent"), "CustomMobileUA/1.0")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Accept-Language"), "zh-CN")
+        XCTAssertNil(req.value(forHTTPHeaderField: "Cookie"))
+
+        let gbkRendered = LegadoJSEngine.shared.renderUrlTemplate(
+            "/search.php?q={{key}}&p={{page+1}}",
+            baseUrl: "https://fixture.invalid",
+            key: "剑来",
+            page: 1,
+            encodedKeyOverride: "%BD%A3%C0%B4"
+        )
+        XCTAssertEqual(gbkRendered, "/search.php?q=%BD%A3%C0%B4&p=2")
     }
 }

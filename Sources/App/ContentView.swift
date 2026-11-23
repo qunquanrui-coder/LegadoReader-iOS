@@ -93,13 +93,16 @@ struct SettingsView: View {
                 }
 
                 Section("书源引擎") {
+                    let firstSourceName = storage.bookSources.first?.bookSourceName ?? "无"
                     HStack {
                         Label("已保存书源规则", systemImage: "network")
                         Spacer()
-                        Text("\(storage.bookSources.count) 个 · 首源：\(storage.bookSources.first?.bookSourceName ?? "无")")
+                        Text("\(storage.bookSources.count) 个 · 首源：\(firstSourceName)")
                             .foregroundColor(.secondary)
                     }
+                    .id("sources-summary-\(storage.bookSources.count)-\(firstSourceName)")
                     .accessibilityElement(children: .combine)
+                    .accessibilityLabel("已保存书源规则，\(storage.bookSources.count) 个 · 首源：\(firstSourceName)")
                     .accessibilityIdentifier("settings.sources.summary")
 
                     Button {

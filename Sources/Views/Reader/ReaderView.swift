@@ -1059,20 +1059,32 @@ public struct ReaderView: View {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.primary)
                     .frame(width: 34, height: 34)
-                    .background(Color.secondary.opacity(0.15))
+                    .background(Color.primary.opacity(0.08))
                     .clipShape(Circle())
             }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2.5) {
                 Text(book.title)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 15.5, weight: .bold, design: .serif))
                     .lineLimit(1)
-                Text("来源：\(book.sourceName)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(book.sourceName)
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Color.indigo.opacity(0.14))
+                        .foregroundColor(.indigo)
+                        .clipShape(Capsule())
+                    if let ch = currentChapter {
+                        Text(ch.title)
+                            .font(.system(size: 10.5))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
 
             Spacer()
@@ -1171,26 +1183,57 @@ public struct ReaderView: View {
                 loadCurrentChapterContent(forceRefresh: true)
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .background(Color.primary.opacity(0.06))
+                    .clipShape(Circle())
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.6)
+        }
         .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
     }
 
     // MARK: - Bottom HUD Bar
     private var bottomBar: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 14) {
+        VStack(spacing: 12) {
+            if let ch = currentChapter, !chapters.isEmpty {
+                let pct = min(100, Int((Double(currentChapterIndex + 1) / Double(chapters.count)) * 100))
+                HStack(spacing: 6) {
+                    Text(ch.title)
+                        .font(.system(size: 12, weight: .semibold, design: .serif))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("第 \(currentChapterIndex + 1)/\(chapters.count) 章 · \(pct)%")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(.indigo)
+                }
+                .padding(.horizontal, 20)
+            }
+
+            HStack(spacing: 12) {
                 Button {
                     if currentChapterIndex > 0 {
                         switchChapter(to: currentChapterIndex - 1, proxy: nil)
                     }
                 } label: {
-                    Text("上一章")
-                        .font(.system(size: 13, weight: .semibold))
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("上一章")
+                            .font(.system(size: 12.5, weight: .semibold))
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.07))
+                    .clipShape(Capsule())
                 }
                 .disabled(currentChapterIndex <= 0)
 
@@ -1218,12 +1261,20 @@ public struct ReaderView: View {
                         switchChapter(to: currentChapterIndex + 1, proxy: nil)
                     }
                 } label: {
-                    Text("下一章")
-                        .font(.system(size: 13, weight: .semibold))
+                    HStack(spacing: 3) {
+                        Text("下一章")
+                            .font(.system(size: 12.5, weight: .semibold))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.07))
+                    .clipShape(Capsule())
                 }
                 .disabled(currentChapterIndex >= chapters.count - 1)
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 16)
 
             Divider()
 
@@ -1234,7 +1285,7 @@ public struct ReaderView: View {
                 } label: {
                     VStack(spacing: 5) {
                         Image(systemName: "list.bullet.indent")
-                            .font(.system(size: 18))
+                            .font(.system(size: 18, weight: .medium))
                         Text("目录").font(.system(size: 11, weight: .medium))
                     }
                 }
@@ -1244,9 +1295,11 @@ public struct ReaderView: View {
                 } label: {
                     VStack(spacing: 5) {
                         Image(systemName: speech.isSpeaking && ownsSpeech ? "waveform.circle.fill" : "headphones")
-                            .font(.system(size: 18))
+                            .font(.system(size: 18, weight: .medium))
                             .foregroundColor(speech.isSpeaking && ownsSpeech ? .indigo : .primary)
-                        Text("听书").font(.system(size: 11, weight: .medium))
+                        Text("听书")
+                            .font(.system(size: 11, weight: speech.isSpeaking && ownsSpeech ? .bold : .medium))
+                            .foregroundColor(speech.isSpeaking && ownsSpeech ? .indigo : .primary)
                     }
                 }
                 Spacer()
@@ -1255,7 +1308,7 @@ public struct ReaderView: View {
                 } label: {
                     VStack(spacing: 5) {
                         Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 18))
+                            .font(.system(size: 18, weight: .medium))
                         Text("换源").font(.system(size: 11, weight: .medium))
                     }
                 }
@@ -1270,7 +1323,8 @@ public struct ReaderView: View {
                 } label: {
                     VStack(spacing: 5) {
                         Image(systemName: storage.readerConfig.theme.isDark ? "sun.max.fill" : "moon.stars.fill")
-                            .font(.system(size: 18))
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(storage.readerConfig.theme.isDark ? .orange : .primary)
                         Text(storage.readerConfig.theme.isDark ? "日间" : "夜间")
                             .font(.system(size: 11, weight: .medium))
                     }
@@ -1281,7 +1335,7 @@ public struct ReaderView: View {
                 } label: {
                     VStack(spacing: 5) {
                         Image(systemName: "textformat.alt")
-                            .font(.system(size: 18))
+                            .font(.system(size: 18, weight: .medium))
                         Text("排版").font(.system(size: 11, weight: .medium))
                     }
                 }
@@ -1290,9 +1344,14 @@ public struct ReaderView: View {
             .foregroundColor(.primary)
             .padding(.bottom, 6)
         }
-        .padding(.top, 14)
+        .padding(.top, 12)
         .padding(.bottom, 8)
         .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.6)
+        }
         .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: -2)
     }
 

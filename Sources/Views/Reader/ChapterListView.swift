@@ -44,13 +44,56 @@ public struct ChapterListView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 VStack(spacing: 0) {
+                    // Top Summary Pill Bar
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "book.pages")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("共 \(chapters.count) 章")
+                                .font(.system(size: 11.5, weight: .semibold))
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color.indigo.opacity(0.10))
+                        .foregroundColor(.indigo)
+                        .clipShape(Capsule())
+                        
+                        if !cachedIndices.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 11))
+                                Text("已缓存 \(cachedIndices.count) 章")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(Color.teal.opacity(0.12))
+                            .foregroundColor(.teal)
+                            .clipShape(Capsule())
+                        }
+                        
+                        Spacer()
+                        
+                        if !chapters.isEmpty {
+                            let pct = min(100, max(1, Int((Double(currentIndex + 1) / Double(chapters.count)) * 100)))
+                            Text("阅读进度 \(pct)%")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 2)
+
                     // Search & Quick Action Bar
                     HStack(spacing: 10) {
                         HStack {
                             Image(systemName: "magnifyingglass")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.indigo)
+                                .font(.system(size: 14, weight: .semibold))
                             TextField("快速检索章节...", text: $searchKeyword)
                                 .textFieldStyle(.plain)
+                                .font(.system(size: 14))
                                 .submitLabel(.search)
                             if !searchKeyword.isEmpty {
                                 Button {
@@ -63,7 +106,7 @@ public struct ChapterListView: View {
                         }
                         .padding(9)
                         .background(Color(.secondarySystemBackground))
-                        .cornerRadius(10)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         
                         Button {
                             scrollToCurrentChapter(proxy: proxy, animated: true)
@@ -77,7 +120,7 @@ public struct ChapterListView: View {
                             .padding(.vertical, 9)
                             .background(Color.indigo.opacity(0.14))
                             .foregroundColor(.indigo)
-                            .cornerRadius(10)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
                         
                         Button {
@@ -92,7 +135,7 @@ public struct ChapterListView: View {
                             .padding(.vertical, 9)
                             .background(Color(.secondarySystemBackground))
                             .foregroundColor(.primary)
-                            .cornerRadius(10)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
                     }
                     .padding(.horizontal, 16)

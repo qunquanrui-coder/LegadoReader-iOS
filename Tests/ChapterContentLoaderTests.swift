@@ -181,4 +181,22 @@ final class ChapterContentLoaderTests: XCTestCase {
             XCTFail("An unresolved continuation must not be cached as a complete chapter")
         } catch ChapterLoadingError.ambiguousNextPage { }
     }
+
+    func testUnsupportedNextContentUrlScriptFallsBackToGenericNextPageWithoutFailingSession() async throws {
+        let src = BookSource(
+            bookSourceName: "LoopNextRule",
+            bookSourceUrl: "https://fixture.invalid",
+            ruleContent: RuleContent(
+                content: "#content@html",
+                nextContentUrl: "@js:while(true){}"
+            )
+        )
+        let pages = FixturePages([
+            first: page("第一页正文。", next: second),
+            second: page("第二页完整章尾。")
+        ])
+        let result = try await loader(pages).load(chapter: chapter(), source: src, referer: nil)
+        XCTAssertEqual(result.pageCount, 2)
+        XCTAssertTrue(result.text.hasSuffix("第二页完整章尾。"))
+    }
 }

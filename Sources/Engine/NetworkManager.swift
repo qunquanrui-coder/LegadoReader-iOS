@@ -69,7 +69,8 @@ public class NetworkManager {
                 rawSearchUrl,
                 baseUrl: cleanBaseUrl,
                 key: keyword,
-                page: 1
+                page: 1,
+                encodedKeyOverride: encodedKey
             )
         } else {
             replaced = rawSearchUrl
@@ -116,6 +117,7 @@ public class NetworkManager {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(cleanBaseUrl, forHTTPHeaderField: "Referer")
+        Self.applyCustomHeaders(from: source.header, to: &request)
         
         if method == "POST", let bodyStr = bodyStr {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -128,6 +130,25 @@ public class NetworkManager {
         return (try decodeData(data), finalUrl)
     }
     
+    static func applyCustomHeaders(from headerJSON: String?, to request: inout URLRequest) {
+        guard let raw = headerJSON?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let data = raw.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        let allowedKeys: Set<String> = ["user-agent", "accept", "accept-language", "x-requested-with"]
+        for (key, value) in dict {
+            let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard allowedKeys.contains(cleanKey.lowercased()),
+                  let strVal = value as? String,
+                  !strVal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            request.setValue(strVal, forHTTPHeaderField: cleanKey)
+        }
+    }
+
     static func validateSearchResponse(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)

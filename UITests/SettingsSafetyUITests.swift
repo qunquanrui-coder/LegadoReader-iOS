@@ -18,6 +18,7 @@ final class SettingsSafetyUITests: XCTestCase {
         let confirmation = app.alerts["完整重置全部书源？"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["取消"].tap()
+        waitForDisappearance(of: confirmation)
         assertCustomSource(app, exists: true)
 
         tapButton(id: "settings.sources.reset", title: "完整重置书源…", in: app)
@@ -65,6 +66,13 @@ final class SettingsSafetyUITests: XCTestCase {
         let alert = app.alerts["备份与恢复提示"]
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
         alert.buttons["好的"].tap()
+        waitForDisappearance(of: alert)
+    }
+
+    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval = 10) {
+        let disappeared = NSPredicate(format: "exists == false")
+        let exp = expectation(for: disappeared, evaluatedWith: element)
+        XCTAssertEqual(XCTWaiter.wait(for: [exp], timeout: timeout), .completed)
     }
 
     private func assertCustomSource(_ app: XCUIApplication, exists: Bool) {

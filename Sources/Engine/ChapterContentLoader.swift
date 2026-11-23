@@ -119,7 +119,9 @@ public final class ChapterContentLoader {
         let anchors = (try? doc.select("a[href]").array()) ?? []
         var candidate: String?
         var fromRule = false
-        if let rule = source.ruleContent?.nextContentUrl, !rule.isEmpty {
+        if let rule = source.ruleContent?.nextContentUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rule.isEmpty,
+           LegadoJSEngine.shared.unsupportedRuleReason(rule) == nil {
             candidate = LegadoParser.shared.extractValue(from: doc, rule: rule, baseUrl: baseURL)
             fromRule = candidate != nil
         }

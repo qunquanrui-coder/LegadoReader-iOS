@@ -317,7 +317,16 @@ public struct BookDetailView: View {
                         .padding(.vertical, 20)
                     } else {
                         VStack(spacing: 0) {
+                            let activeBookId = shelfBook?.id ?? book.id
+                            let activeChapterIndex = shelfBook?.currentChapterIndex ?? book.currentChapterIndex
                             ForEach(chapters.prefix(15)) { ch in
+                                let isCurrent = isAddedToShelf && ch.index == activeChapterIndex
+                                let isCached = storage.isChapterCached(
+                                    bookId: activeBookId,
+                                    chapterIndex: ch.index,
+                                    chapterURL: ch.url,
+                                    sourceURL: book.sourceUrl
+                                )
                                 Button {
                                     book.currentChapterIndex = ch.index
                                     book.currentChapterTitle = ch.title
@@ -337,12 +346,30 @@ public struct BookDetailView: View {
                                     )
                                     isReading = true
                                 } label: {
-                                    HStack {
+                                    HStack(spacing: 8) {
                                         Text(ch.title)
-                                            .font(.system(size: 14))
-                                            .foregroundColor(.primary)
+                                            .font(.system(size: 14, weight: isCurrent ? .bold : .regular))
+                                            .foregroundColor(isCurrent ? .indigo : .primary)
                                             .lineLimit(1)
                                         Spacer()
+                                        if isCached {
+                                            Text("已缓存")
+                                                .font(.system(size: 9.5, weight: .semibold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.teal.opacity(0.14))
+                                                .foregroundColor(.teal)
+                                                .clipShape(Capsule())
+                                        }
+                                        if isCurrent {
+                                            Text("上次读到")
+                                                .font(.system(size: 9.5, weight: .bold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.indigo.opacity(0.15))
+                                                .foregroundColor(.indigo)
+                                                .clipShape(Capsule())
+                                        }
                                         Image(systemName: "chevron.right")
                                             .font(.caption2)
                                             .foregroundColor(.secondary.opacity(0.4))

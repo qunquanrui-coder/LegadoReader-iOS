@@ -193,7 +193,7 @@ public final class LegadoJSEngine {
     }
     
     /// Evaluates inline `{{...}}` expressions as well as `@js:` / `<js>` blocks inside URL templates (like `searchUrl`).
-    public func renderUrlTemplate(_ template: String, baseUrl: String, key: String, page: Int = 1) -> String {
+    public func renderUrlTemplate(_ template: String, baseUrl: String, key: String, page: Int = 1, encodedKeyOverride: String? = nil) -> String {
         guard template.utf8.count <= 16_384 else { Self.currentSession?.record(.budgetExceeded); return "" }
         let (basePart, scripts) = splitSelectorAndJS(template)
         var rendered = basePart
@@ -207,7 +207,7 @@ public final class LegadoJSEngine {
                       let exprRange = Range(m.range(at: 1), in: rendered) else { continue }
                 let expr = String(rendered[exprRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if expr == "key" {
-                    let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                    let encoded = encodedKeyOverride ?? (key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key)
                     rendered.replaceSubrange(fullRange, with: encoded)
                 } else if expr == "page" {
                     rendered.replaceSubrange(fullRange, with: "\(page)")

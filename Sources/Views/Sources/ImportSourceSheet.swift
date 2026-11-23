@@ -89,18 +89,33 @@ public struct ImportSourceSheet: View {
     }
     
     private func presetLabel(_ title: String, description: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.primary)
-                Spacer()
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.indigo.opacity(0.16), Color.purple.opacity(0.10)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 38, height: 38)
                 Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.indigo)
             }
-            Text(description)
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 14.5, weight: .bold, design: .serif))
+                    .foregroundColor(.primary)
+                Text(description)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary.opacity(0.45))
         }
         .padding(.vertical, 4)
     }

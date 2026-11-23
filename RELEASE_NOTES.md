@@ -1,30 +1,28 @@
-# 风读 v4.0.0 · 东方雅致书房与精选新源版（25 个内置书源非破坏升级、解析引擎增强与全界面视觉焕新）
+# 风读 v4.1.0 · 全场景东方书房精修版（阅读器与弹窗全链路美化、分页容错加固与自定义请求头支持）
 
-发布日期：2026-11-13
+发布日期：2026-11-23
 
 ## 本版变化
 
-1. **📚 内置书源扩充至 25 个精选源 + 非破坏性自动升级**：
-   - 新增 **得奇小说网（`.org`）、独步小说（`dbxsn.com`）、夜天连（`yetianlian.net`）、万相书城（`wxsck.com`）、言情小说阁（`xianqihaotianmi.org`）** 5 个经多轮目录分页与正文章节实测的精选书源，并置顶优先并发检索。
-   - 升级时仅按 `bookSourceUrl` 自动补充全新内置书源，完整保留用户已有自定义规则、启用开关、已删旧源选择与本地离线章节缓存。
-   - 清理旧内置源遗留的虚假 `respondTime` 权重值（避免未测速前误标红色“搜索未验证通过”徽章）与占位分组标签。
-2. **⚙️ 书源解析与规则兼容引擎深度优化**：
-   - 支持 Legado `###` 尾部正则仅保留首匹配替换模板（如 `a.0@href##(\d+)##/uploads/cover/pic$1.jpg###`），并兼容 `@js:##` 正则替换写法与受控 `{n,m}` 量词，确保万相书城、笔迷读等书源封面图与字段解析完整。
-   - 新增 `java.toNumChapter` 中文数字章节转阿拉伯数字桥接支持，并在目录分页 `nextTocUrl` 遇到受限脚本时平滑回退至 `rel=next` /「下一页」启发式翻页，确保全部 25 个内置书源 100% 通过搜索与目录策略校验。
-3. **🎨「东方雅致书房 · 琉璃流体设计」全界面 UI 焕新**：
-   - **书封组件 (`BookCoverView`)**：升级线装古籍订线纹理、描金双线内框、宣纸朱砂藏书签与阅读进度角标。
-   - **书架页 (`BookshelfView`)**：全新「正在品读」流光大卡片（带可视化渐变进度条、章节段落定位与快捷续读）、顶部馆藏与在线源状态胶囊栏、带分角/说书状态徽章的悬浮听书迷你吧。
-   - **探索与详情页 (`SearchView` / `BookDetailView`)**：新增实时搜索进度条卡片、渐变分类榜单胶囊、目录完整性印章与全本缓存实时进度条。
-   - **书源中心 (`SourceManagerView`)**：新增「搜索兼容 / 新增精选 / 测速通过」三栏数据看板与分类筛选胶囊，直观展示域名、分组与规则完备状态。
+1. **🛡️ 正文分页容错、自定义请求头与 GBK 动态模板修复**：
+   - **正文分页脚本隔离 (`ChapterContentLoader`)**：当书源 `ruleContent.nextContentUrl` 含有受限脚本（如 `for`/`while` 循环）时，不再污染当前 JS 会话导致整章正文被丢弃，而是平滑降级至通用的「下一页」链接识别。
+   - **书源安全请求头支持 (`NetworkManager.applyCustomHeaders`)**：自动解析并应用书源 `header` 字段中的安全 HTTP 请求头（`User-Agent`、`Accept`、`Accept-Language`、`X-Requested-With`），同时拦截不安全头字段。
+   - **动态搜索模板 GBK 编码一致性 (`LegadoJSEngine.renderUrlTemplate`)**：当 `searchUrl` 同时包含 GBK/GB2312 声明与 `{{...}}` / `@js:` 动态表达式时，`{{key}}` 保持使用 GB18030 字节百分号编码。
+   - **设置页无障碍节点刷新加固 (`SettingsView` & `SettingsSafetyUITests`)**：为书源概览行绑定显式动态 ID 与无障碍标签，并在 UI 测试中严格等待弹窗消散动画完成，彻底消除模拟器高负载下的无障碍缓存抖动。
+2. **🎨 阅读器顶底栏与全弹窗「东方雅致书房」视觉统一**：
+   - **阅读器顶底控制栏 (`ReaderView`)**：顶栏新增当前书源胶囊与章节副标题；底栏滑块上方新增实时「章节名 + 第 X/Y 章 · 进度百分比」指示条，上下章切换升级为圆角胶囊按钮。
+   - **排版设置面板 (`ReaderSettingsSheet`)**：顶部新增**「东方雅致书房 · 实时排版预览」**卡片（实时联动当前背景主题、字体、字号与行距渲染《赤壁赋》名句），主题色卡新增选中角标。
+   - **章节目录 (`ChapterListView`) & 书籍详情页 (`BookDetailView`)**：目录弹窗顶部新增「总章数 + 已缓存章数 + 阅读进度」状态栏；书籍详情页前 15 章预览列表新增实时 **`已缓存`** 翠绿徽章与 **`上次读到`** 靛蓝标识。
+   - **换源 (`ChangeSourceSheet`) & 导入书源 (`ImportSourceSheet`)**：换源弹窗新增可视化搜索进度条；书源仓库预设项升级为渐变图标卡片。
 
 ## 测试与边界
 
-- 新增并通过 `BundledSourceUpgradeTests`、`TocPaginationTests`（含得奇 `.org` 末页占位链接防护）、`SourceExpressionTests`（覆盖全部 25 个内置源规则校验、`###` 封面正则替换与 `java.toNumChapter`）及 `ExpressiveSpeechTests`。
+- 新增并通过 `testUnsupportedNextContentUrlScriptFallsBackToGenericNextPageWithoutFailingSession`、自定义请求头白名单过滤测试、GBK 动态模板编码测试及全部 25 个内置书源规则校验。
 - 在 GitHub Actions 的 iPhone Duo 与普通 iPhone 模拟器上分别运行完整单元测试与 UI 自动化测试套件，并构建校验两个未签名 IPA。
 
 ## 升级与下载
 
-覆盖安装即可，保留书架、书源、阅读进度、缓存和原有偏好，并自动补入 5 个新增精选书源。
+覆盖安装即可，保留书架、书源、阅读进度、缓存和原有偏好。
 
 - `LegadoReader-unsigned.ipa`：标准 iPhone 版。
 - `LegadoReader-iPhoneDuo-unsigned.ipa`：Duo 版。

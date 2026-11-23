@@ -17,6 +17,41 @@ public struct ReaderSettingsSheet: View {
                     .frame(width: 40, height: 5)
                     .padding(.top, 10)
                 
+                // Live Typography & Theme Preview Card
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        HStack(spacing: 5) {
+                            Image(systemName: "paintbrush.pointed.fill")
+                                .font(.system(size: 11))
+                            Text("东方雅致书房 · 实时排版预览")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                        .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.65))
+                        Spacer()
+                        Text("\(storage.readerConfig.theme.rawValue) · \(storage.readerConfig.fontDesign.rawValue) · \(Int(selectedTypography.fontSize))pt")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundColor(storage.readerConfig.theme.textColor.opacity(0.55))
+                    }
+                    
+                    Text("清风徐来，水波不兴。举酒属客，诵明月之诗，歌窈窕之章。")
+                        .font(.system(size: selectedTypography.fontSize, design: storage.readerConfig.fontDesign.swiftUIDesign))
+                        .foregroundColor(storage.readerConfig.theme.textColor)
+                        .lineSpacing(selectedTypography.lineSpacing)
+                        .lineLimit(2)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(storage.readerConfig.theme.backgroundColor)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.indigo.opacity(0.22), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+                )
+                .padding(.horizontal, 20)
+                
                 // 1. Page Turn Mode & Chinese Conversion
                 VStack(alignment: .leading, spacing: 12) {
                     Text("翻页模式与 iPhone Duo 双屏适配")
@@ -132,29 +167,38 @@ public struct ReaderSettingsSheet: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 14) {
                             ForEach(ReaderBackgroundTheme.allCases, id: \.self) { theme in
+                                let isSelected = storage.readerConfig.theme == theme
                                 Button {
                                     storage.readerConfig.theme = theme
                                     storage.saveConfig()
                                 } label: {
                                     VStack(spacing: 6) {
-                                        ZStack {
-                                            Circle()
-                                                .fill(theme.backgroundColor)
-                                                .frame(width: 44, height: 44)
-                                                .overlay(
-                                                    Circle()
-                                                        .stroke(
-                                                            storage.readerConfig.theme == theme ? Color.indigo : Color.gray.opacity(0.25),
-                                                            lineWidth: storage.readerConfig.theme == theme ? 3 : 1
-                                                        )
-                                                )
-                                            Text("文")
-                                                .font(.system(size: 15, weight: .bold, design: .serif))
-                                                .foregroundColor(theme.textColor)
+                                        ZStack(alignment: .bottomTrailing) {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(theme.backgroundColor)
+                                                    .frame(width: 46, height: 46)
+                                                    .overlay(
+                                                        Circle()
+                                                            .stroke(
+                                                                isSelected ? Color.indigo : Color.gray.opacity(0.25),
+                                                                lineWidth: isSelected ? 2.5 : 1
+                                                            )
+                                                    )
+                                                Text("文")
+                                                    .font(.system(size: 15, weight: .bold, design: .serif))
+                                                    .foregroundColor(theme.textColor)
+                                            }
+                                            if isSelected {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.indigo)
+                                                    .background(Circle().fill(Color(.systemBackground)))
+                                            }
                                         }
                                         Text(theme.rawValue)
-                                            .font(.system(size: 11, weight: storage.readerConfig.theme == theme ? .bold : .regular))
-                                            .foregroundColor(storage.readerConfig.theme == theme ? .indigo : .primary)
+                                            .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                                            .foregroundColor(isSelected ? .indigo : .primary)
                                     }
                                 }
                             }

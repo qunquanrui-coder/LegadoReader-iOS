@@ -24,18 +24,47 @@ public struct ChangeSourceSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if !statusText.isEmpty {
-                    HStack(spacing: 8) {
-                        if isSearching { ProgressView().scaleEffect(0.85) }
-                        if isSearching {
-                            Button("停止") { searchSession.cancel() }
-                        } else if searchSession.hasMore {
-                            Button("继续搜索") { searchSession.continueSearch() }
+                    let totalCount = max(1, storage.bookSources.filter { ($0.enabled ?? true) && SourceSearchPolicy.unsupportedReason($0) == nil }.count)
+                    let fraction = min(1.0, max(0.05, Double(searchSession.finished) / Double(totalCount)))
+                    VStack(spacing: 6) {
+                        HStack(spacing: 8) {
+                            if isSearching {
+                                ProgressView().scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                            }
+                            Text(statusText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            if isSearching {
+                                Button("停止") { searchSession.cancel() }
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.orange)
+                            } else if searchSession.hasMore {
+                                Button("继续搜索") { searchSession.continueSearch() }
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.indigo)
+                            }
                         }
-                        Text(statusText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if isSearching {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule()
+                                        .fill(Color.primary.opacity(0.07))
+                                        .frame(height: 3.5)
+                                    Capsule()
+                                        .fill(LinearGradient(colors: [.indigo, .purple], startPoint: .leading, endPoint: .trailing))
+                                        .frame(width: max(12, geo.size.width * fraction), height: 3.5)
+                                }
+                            }
+                            .frame(height: 3.5)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(Color(.secondarySystemGroupedBackground))
                 }
