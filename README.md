@@ -4,7 +4,7 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
-![Release](https://img.shields.io/badge/Release-v3.9.0-brightgreen)
+![Release](https://img.shields.io/badge/Release-v4.1.0-brightgreen)
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（支持 HTML/CSS 与受限白名单表达式求值；JSONPath、JavaScript 搜索列表、混合 CSS/JS 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
 
@@ -13,6 +13,22 @@
 网文测试分支新增独步小说、言情小说阁、夜天连和万相书城，均通过风读原生搜索、目录和正文抽查。规则从 [shidahuilang/shuyuan-bak 的规则快照](https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json) 筛选，附 [GPL-3.0 许可](Resources/CuratedWebNovelSources-LICENSE.txt)。
 
 得奇小说网 `.org` 地址从 [yuyuan-cc/shuyuan 的规则快照](https://github.com/yuyuan-cc/shuyuan/blob/42a188f41ae55d79dc1a2ee3a160f2410633282e/all.json) 找到。风读按公开网页编写了适配规则，抽查《噩梦使徒》时读取了两页目录和第 1283 章的六页正文。
+
+## v4.1.0 全场景东方书房精修版（全链路 UI 统一、分页容错加固与自定义请求头）
+
+- **🛡️ 正文分页脚本隔离容错 (`ChapterContentLoader`)**：当书源 `ruleContent.nextContentUrl` 含有受限脚本（如 `for`/`while` 循环）时，不再污染当前 JS 会话导致整章正文被丢弃，而是平滑降级至通用「下一页」锚点识别。
+- **🌐 书源安全请求头 & GBK 动态搜索模板修复 (`NetworkManager` / `LegadoJSEngine`)**：自动解析并应用书源 `header` 中的安全 HTTP 请求头（`User-Agent`、`Accept`、`Accept-Language`、`X-Requested-With`），并确保含 `gbk/gb2312` 的动态搜索模板保持 GB18030 字节编码。
+- **🎨 阅读器与全二级面板「东方雅致书房」精修**：
+  - 阅读器顶栏新增书源胶囊与章节副标题，底栏滑块上方新增实时「章节名 + 第 X/Y 章 · 进度%」指示栏。
+  - 排版设置面板顶部新增**「东方雅致书房 · 实时排版预览」**卡片（实时联动主题色、字体、字号与行距），主题色卡新增选中角标。
+  - 书籍详情页前 15 章预览新增 **`已缓存`** 与 **`上次读到`** 徽章；目录弹窗新增「总章数 + 已缓存章数 + 阅读进度」状态栏；换源弹窗新增可视化搜索进度条。
+- **🧪 设置页无障碍刷新与 UI 测试加固**：为 `settings.sources.summary` 绑定显式动态标识与无障碍标签，并在 UI 测试中等待弹窗动画完全消散。
+
+## v4.0.0 东方雅致书房与精选新源版（25 个内置书源非破坏升级、正则/JS 解析增强与主界面焕新）
+
+- **📚 25 个内置书源置顶优化与脏数据清理**：置顶 **得奇小说网（`.org`）、独步小说、夜天连、万相书城、言情小说阁** 5 个新增实测精选源并标为 `新增精选`；移除旧内置源遗留的虚假 `respondTime` 权重（避免未测速前误标红色「搜索未验证通过」）与占位分组标签。
+- **⚙️ Legado 规则兼容性增强**：支持尾部 `###` 仅保留首匹配正则替换模板（修复万相书城、笔迷读等封面图规则），兼容 `@js:##` 正则替换语法与受控 `{n,m}` 量词，新增 `java.toNumChapter` 中文数字章节转换桥接，全部 25 个内置书源 100% 通过搜索策略校验。
+- **🎨 主界面「东方雅致书房 · 琉璃流体设计」**：升级古籍线装订线与描金内框 `BookCoverView`、带渐变进度条的「正在品读」流光大卡片、分角状态琉璃听书迷你吧、实时搜索进度卡片及书源中心三栏数据看板与分类筛选胶囊。
 
 ## v3.9.0 情感剧场听书版（多角色广播剧、小说动态情绪韵律与 10 位特色主播）
 
@@ -74,14 +90,14 @@
 
 ---
 
-## 📦 最新版本下载 (`v3.9.0` 情感剧场听书版)
+## 📦 最新版本下载 (`v4.1.0` 全场景东方书房精修版)
 
-前往 [GitHub Releases v3.9.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v3.9.0) 下载：
+前往 [GitHub Releases v4.1.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v4.1.0) 下载：
 
 | 安装包 | 适用场景 |
 | :--- | :--- |
-| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.9.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
-| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v3.9.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
+| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v4.1.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
+| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v4.1.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
 
 
 ---
@@ -106,8 +122,8 @@
 - 使用 iOS 27.1 SDK 构建，并检查 IPA 中实际记录的 SDK；不以版本名称代替 SDK 验证。
 
 ### 3. 🎧 真人情感神经网络语音听书 & 锁屏后台无损续航
-- **5 位微软 Edge Neural 真人情感主播**：
-  - `云希 · 阳光少年音 (荐)`、`晓晓 · 温柔知性女声`、`云健 · 浑厚武侠评书`、`晓伊 · 灵动甜美女声`、`云扬 · 沉稳播音男声`。
+- **10 位微软 Edge Neural 高表现力主播 + 多角色剧场分角**：
+  - 支持 `云希`、`云夏`、`晓晓`、`晓伊`、`云健`、`云扬`、`晓北`、`晓妮`、`晓臻`、`云哲` 共 10 位特色音色；支持 **「旁白 + 男女对话」多角色剧场模式** 与 **小说语境智能情绪调音**。
   - 内置 `Sec-MS-GEC v2` (`CS64-SHA256`) 动态安全令牌生成与服务端 `Date` 时钟偏移自动校准，搭配 **百度在线神经网络语音** 与 **iOS 本地高音质 Siri 语音** 三级自动容灾降级。
 - **双段超前预合成队列**：朗读当前段落时，后台自动并发预合成后续 **2 个段落** 的 MP3 音频流，段落切换零等待。
 - **锁屏后台连续朗读 + 灵动岛/锁屏控制中心 + 书架底部迷你播放条**：
@@ -142,7 +158,7 @@
 ```text
 LegadoReader-iOS/
 ├── .github/workflows/build.yml          # GitHub Actions 云端自动构建双版本 IPA 工作流
-├── project.yml                          # XcodeGen 工程配置文件 (v3.8.0)
+├── project.yml                          # XcodeGen 工程配置文件 (v4.1.0, Build 46)
 ├── Resources/
 │   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
 │   ├── default_sources.json             # 随应用提供的 Legado 书源规则
