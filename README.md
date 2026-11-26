@@ -4,7 +4,7 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 ![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20CoreText-purple)
 ![Edition](https://img.shields.io/badge/Edition-iPhone%20%26%20iPhone%20Duo-blue)
-![Release](https://img.shields.io/badge/Release-v4.1.0-brightgreen)
+![Release](https://img.shields.io/badge/Release-v4.2.0-brightgreen)
 
 **风读 (LegadoReader-iOS)** 是一款使用纯原生 **Swift + SwiftUI** 打造的 iOS 小说阅读器，支持部分 **开源阅读（Legado 3.0）** 书源规则（支持 HTML/CSS 与受限白名单表达式求值；JSONPath、JavaScript 搜索列表、混合 CSS/JS 搜索列表及完整 Android Java 桥接暂不支持），同时提供 **标准 iPhone 通用版** 与 **iPhone Duo 折叠双屏专享版** 两个独立安装包。
 
@@ -13,6 +13,12 @@
 网文测试分支新增独步小说、言情小说阁、夜天连和万相书城，均通过风读原生搜索、目录和正文抽查。规则从 [shidahuilang/shuyuan-bak 的规则快照](https://github.com/shidahuilang/shuyuan-bak/blob/3ccc651a249ba453eff238762d16f78d09dcea10/good.json) 筛选，附 [GPL-3.0 许可](Resources/CuratedWebNovelSources-LICENSE.txt)。
 
 得奇小说网 `.org` 地址从 [yuyuan-cc/shuyuan 的规则快照](https://github.com/yuyuan-cc/shuyuan/blob/42a188f41ae55d79dc1a2ee3a160f2410633282e/all.json) 找到。风读按公开网页编写了适配规则，抽查《噩梦使徒》时读取了两页目录和第 1283 章的六页正文。
+
+## v4.2.0 实时热榜与宣纸金墨美学版（在线实时新书榜、前三高光展台与全界面视觉升级）
+
+- **🔥 起点 + 纵横双平台在线实时榜单 (`BookRecommendationEngine`)**：自动拉取起点月票榜、24 小时热销榜、潜力新书榜与纵横月票/新书实时数据（附高清真实封面、月票热度与最新简介），支持 6 小时本地缓存秒开与一键「刷新榜单」，离线自动降级至 2025–2026 最新高分新书库。
+- **🏆 八大分榜 & 前三名高光展台 (`TopThreeSpotlightStrip`)**：新增「实时热榜」「最新新书」「经典殿堂」分区，前三名以横向三联皇冠展台高亮呈现，热搜词动态跟随实时榜首更新。
+- **🎨 东方宣纸金墨视觉系统 (`AppDesignSystem`)**：全应用升级自适应温润宣纸/玄墨底色、象牙卡片边框与顶部微光氛围背景；书架新增「最近 / 书名」一键排序与宫格封面下缘渐变进度条。
 
 ## v4.1.0 全场景东方书房精修版（全链路 UI 统一、分页容错加固与自定义请求头）
 
@@ -90,14 +96,14 @@
 
 ---
 
-## 📦 最新版本下载 (`v4.1.0` 全场景东方书房精修版)
+## 📦 最新版本下载 (`v4.2.0` 实时热榜与宣纸金墨美学版)
 
-前往 [GitHub Releases v4.1.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v4.1.0) 下载：
+前往 [GitHub Releases v4.2.0](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/tag/v4.2.0) 下载：
 
 | 安装包 | 适用场景 |
 | :--- | :--- |
-| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v4.1.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
-| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v4.1.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
+| [LegadoReader-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v4.2.0/LegadoReader-unsigned.ipa) | 标准 iPhone 版 |
+| [LegadoReader-iPhoneDuo-unsigned.ipa](https://github.com/qunquanrui-coder/LegadoReader-iOS/releases/download/v4.2.0/LegadoReader-iPhoneDuo-unsigned.ipa) | Duo 版：窗口足够宽时双页阅读，窄窗口自动回到单页 |
 
 
 ---
@@ -158,7 +164,7 @@
 ```text
 LegadoReader-iOS/
 ├── .github/workflows/build.yml          # GitHub Actions 云端自动构建双版本 IPA 工作流
-├── project.yml                          # XcodeGen 工程配置文件 (v4.1.0, Build 46)
+├── project.yml                          # XcodeGen 工程配置文件 (v4.2.0, Build 47)
 ├── Resources/
 │   ├── Info.plist                       # 后台音频权限、多窗口 Scene Manifest、动态版本号配置
 │   ├── default_sources.json             # 随应用提供的 Legado 书源规则

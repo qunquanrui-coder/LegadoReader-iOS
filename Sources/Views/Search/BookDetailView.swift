@@ -401,7 +401,7 @@ public struct BookDetailView: View {
             }
             .padding(16)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppAmbientBackdrop())
         .navigationTitle(book.title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

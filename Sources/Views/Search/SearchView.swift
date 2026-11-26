@@ -5,6 +5,7 @@ import UIKit
 public struct SearchView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var storage = StorageManager.shared
+    @ObservedObject var recommendationEngine = BookRecommendationEngine.shared
     
     @State private var searchText = ""
     @StateObject private var searchSession = SourceSearchSession()
@@ -23,12 +24,6 @@ public struct SearchView: View {
     
     // Keyboard focus state
     @FocusState private var isSearchFieldFocused: Bool
-    
-    private let hotKeywords = [
-        "剑来", "凡人修仙传", "诡秘之主", "道诡异仙",
-        "遮天", "大奉打更人", "雪中悍刀行", "仙逆",
-        "完美世界", "十日终焉", "牧神记", "诛仙"
-    ]
     
     public init() {}
     
@@ -56,9 +51,12 @@ public struct SearchView: View {
                     }
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(AppAmbientBackdrop())
             .navigationTitle("全网搜书")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await recommendationEngine.refreshLiveRankingsIfNeeded()
+            }
             .onDisappear { searchSession.cancel(); suggestionTask?.cancel() }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
@@ -114,11 +112,11 @@ public struct SearchView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(AppPalette.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSearchFieldFocused ? Color.indigo.opacity(0.55) : Color.indigo.opacity(0.18), lineWidth: 1)
+                    .stroke(isSearchFieldFocused ? AppPalette.inkAccent.opacity(0.6) : AppPalette.cardBorder, lineWidth: 1)
             )
             
             if isSearchFieldFocused && searchText.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -139,7 +137,7 @@ public struct SearchView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.indigo)
+                        .background(AppPalette.primaryGradient)
                         .foregroundColor(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
@@ -361,38 +359,84 @@ public struct SearchView: View {
                     }
                 }
                 
-                // 2. Quick Hot Search Chips
+                // 2. Quick Hot Search Chips (Dynamic Live Hot Titles)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles")
-                            .foregroundColor(.orange)
+                            .foregroundColor(AppPalette.gildedAmber)
                         Text("大家都在搜")
-                            .font(.system(size: 15, weight: .bold, design: .serif))
+                            .font(.system(size: 15.5, weight: .bold, design: .serif))
+                        Spacer()
+                        Text("热榜实时词")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2.5)
+                            .background(AppPalette.gildedAmber.opacity(0.14))
+                            .foregroundColor(AppPalette.gildedAmber)
+                            .clipShape(Capsule())
                     }
                     
-                    FlowLayoutChips(items: hotKeywords) { kw in
+                    FlowLayoutChips(items: recommendationEngine.dynamicHotKeywords, highlightTopThree: true) { kw in
                         searchText = kw
                         hideKeyboard()
                         performSearch(keyword: kw)
                     }
                 }
                 
-                // 3. Popular Novel Category Leaderboards
+                // 3. Latest Live High-Rated Novel Leaderboards
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "flame.fill")
-                            .foregroundColor(.red)
-                        Text("全网高分热门小说榜")
-                            .font(.system(size: 17, weight: .bold, design: .serif))
-                        Spacer()
-                        Text("点击即搜")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "flame.fill")
+                                .foregroundStyle(AppPalette.warmGoldGradient)
+                            Text("全网最新高分热门榜")
+                                .font(.system(size: 18, weight: .bold, design: .serif))
+                            Spacer()
+                            
+                            Button {
+                                Task {
+                                    await recommendationEngine.refreshLiveRankingsIfNeeded(force: true)
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    if recommendationEngine.isRefreshingRankings {
+                                        ProgressView()
+                                            .scaleEffect(0.65)
+                                    } else {
+                                        Image(systemName: "arrow.clockwise")
+                                            .font(.system(size: 10.5, weight: .bold))
+                                    }
+                                    Text(recommendationEngine.isRefreshingRankings ? "同步中" : "刷新榜单")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(AppPalette.inkAccent.opacity(0.12))
+                                .foregroundColor(AppPalette.inkAccent)
+                                .clipShape(Capsule())
+                            }
+                            .disabled(recommendationEngine.isRefreshingRankings)
+                        }
+                        
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(recommendationEngine.lastRefreshedAt != nil ? AppPalette.celadon : AppPalette.gildedAmber)
+                                .frame(width: 6, height: 6)
+                            Text(recommendationEngine.liveStatusLabel)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Text("·")
+                                .foregroundColor(.secondary)
+                            Text(selectedCategory.subtitle)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                     
                     // Category Selector Pills
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
+                        HStack(spacing: 9) {
                             ForEach(NovelCategory.allCases) { category in
                                 let isSelected = (selectedCategory == category)
                                 Button {
@@ -402,23 +446,19 @@ public struct SearchView: View {
                                 } label: {
                                     HStack(spacing: 5) {
                                         Image(systemName: category.iconName)
-                                            .font(.system(size: 12, weight: .semibold))
+                                            .font(.system(size: 11.5, weight: .semibold))
                                         Text(category.rawValue)
-                                            .font(.system(size: 13, weight: .semibold))
+                                            .font(.system(size: 12.5, weight: .semibold))
                                     }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8.5)
+                                    .padding(.horizontal, 13)
+                                    .padding(.vertical, 8)
                                     .background(
                                         Group {
                                             if isSelected {
-                                                LinearGradient(
-                                                    colors: [Color.indigo, Color.purple],
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                )
+                                                AppPalette.primaryGradient
                                             } else {
                                                 LinearGradient(
-                                                    colors: [Color(.secondarySystemGroupedBackground), Color(.secondarySystemGroupedBackground)],
+                                                    colors: [AppPalette.cardBackground, AppPalette.cardBackground],
                                                     startPoint: .topLeading,
                                                     endPoint: .bottomTrailing
                                                 )
@@ -429,20 +469,30 @@ public struct SearchView: View {
                                     .clipShape(Capsule())
                                     .overlay(
                                         Capsule()
-                                            .stroke(isSelected ? Color.clear : Color.primary.opacity(0.06), lineWidth: 0.8)
+                                            .stroke(isSelected ? Color.clear : AppPalette.cardBorder, lineWidth: 0.8)
                                     )
-                                    .shadow(color: isSelected ? Color.indigo.opacity(0.25) : Color.clear, radius: 5, x: 0, y: 2)
+                                    .shadow(color: isSelected ? AppPalette.inkAccent.opacity(0.25) : Color.clear, radius: 5, x: 0, y: 2)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
+                        .padding(.vertical, 2)
                     }
                     
-                    // Ranked Novel List for Selected Category
-                    let rankedBooks = BookRecommendationEngine.shared.books(for: selectedCategory)
-                    LazyVStack(spacing: 12) {
-                        ForEach(Array(rankedBooks.enumerated()), id: \.element.id) { index, item in
-                            RecommendedNovelRow(rank: index + 1, novel: item) {
+                    // Top 3 Editorial Spotlight Podium + Ranked Novel List for Selected Category
+                    let rankedBooks = recommendationEngine.books(for: selectedCategory)
+                    if rankedBooks.count >= 3 {
+                        TopThreeSpotlightStrip(books: Array(rankedBooks.prefix(3))) { item in
+                            searchText = item.title
+                            hideKeyboard()
+                            performSearch(keyword: item.title)
+                        }
+                    }
+                    
+                    let listStartIndex = rankedBooks.count >= 3 ? 3 : 0
+                    LazyVStack(spacing: 11) {
+                        ForEach(Array(rankedBooks.dropFirst(listStartIndex).enumerated()), id: \.element.id) { offset, item in
+                            RecommendedNovelRow(rank: listStartIndex + offset + 1, novel: item) {
                                 searchText = item.title
                                 hideKeyboard()
                                 performSearch(keyword: item.title)
@@ -455,7 +505,7 @@ public struct SearchView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "bolt.shield.fill")
                         .font(.title2)
-                        .foregroundColor(.indigo)
+                        .foregroundStyle(AppPalette.primaryGradient)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("多书源并发引擎 + 智能相关度排序已开启")
                             .font(.system(size: 13, weight: .semibold))
@@ -468,7 +518,11 @@ public struct SearchView: View {
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(.secondarySystemGroupedBackground))
+                        .fill(AppPalette.cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(AppPalette.cardBorder, lineWidth: 0.8)
+                        )
                 )
             }
             .padding(16)
@@ -543,9 +597,8 @@ public struct SearchView: View {
         let kw = normalizeTitle(rawKeyword)
         guard !kw.isEmpty else { return books }
         
-        // Known canonical author for the searched novel (if in our curated database)
-        let canonicalAuthor = BookRecommendationEngine.shared.curatedBooks
-            .first(where: { normalizeTitle($0.title) == kw })?.author
+        // Known canonical author for the searched novel (from live rankings or curated database)
+        let canonicalAuthor = recommendationEngine.canonicalAuthor(for: kw)
         
         return books.sorted { a, b in
             let scoreA = relevanceScore(for: a, keyword: kw, canonicalAuthor: canonicalAuthor)
@@ -633,6 +686,88 @@ public struct SearchView: View {
 
 }
 
+// MARK: - Top 3 Editorial Spotlight Podium
+struct TopThreeSpotlightStrip: View {
+    let books: [RecommendedBook]
+    let onSelect: (RecommendedBook) -> Void
+    
+    private func medalColors(for rank: Int) -> [Color] {
+        switch rank {
+        case 1: return [Color(red: 0.96, green: 0.36, blue: 0.24), Color(red: 0.84, green: 0.17, blue: 0.17)]
+        case 2: return [Color(red: 0.94, green: 0.56, blue: 0.20), Color(red: 0.85, green: 0.39, blue: 0.11)]
+        default: return [Color(red: 0.91, green: 0.70, blue: 0.18), Color(red: 0.78, green: 0.53, blue: 0.10)]
+        }
+    }
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ForEach(Array(books.prefix(3).enumerated()), id: \.element.id) { idx, book in
+                let rank = idx + 1
+                Button {
+                    onSelect(book)
+                } label: {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ZStack(alignment: .topLeading) {
+                            BookCoverView(
+                                title: book.title,
+                                author: book.author,
+                                coverUrl: book.coverUrl,
+                                cornerRadius: 9,
+                                badgeText: book.rating
+                            )
+                            
+                            HStack(spacing: 2) {
+                                Image(systemName: rank == 1 ? "crown.fill" : "flame.fill")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text("NO.\(rank)")
+                                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                LinearGradient(
+                                    colors: medalColors(for: rank),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .shadow(color: Color.black.opacity(0.22), radius: 3, x: 0, y: 1.5)
+                            .offset(x: -3, y: -3)
+                        }
+                        
+                        Text(book.title)
+                            .font(.system(size: 13, weight: .bold, design: .serif))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text(book.author)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(AppPalette.cardBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(
+                                        rank == 1 ? AppPalette.gildedAmber.opacity(0.35) : AppPalette.cardBorder,
+                                        lineWidth: rank == 1 ? 1.1 : 0.8
+                                    )
+                            )
+                            .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 3)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
 // MARK: - Recommended Novel Leaderboard Card
 struct RecommendedNovelRow: View {
     let rank: Int
@@ -644,7 +779,7 @@ struct RecommendedNovelRow: View {
         case 1: return [Color(red: 0.95, green: 0.35, blue: 0.25), Color(red: 0.85, green: 0.18, blue: 0.18)]
         case 2: return [Color(red: 0.95, green: 0.55, blue: 0.20), Color(red: 0.88, green: 0.40, blue: 0.12)]
         case 3: return [Color(red: 0.92, green: 0.70, blue: 0.18), Color(red: 0.82, green: 0.55, blue: 0.10)]
-        default: return [Color.secondary.opacity(0.25), Color.secondary.opacity(0.18)]
+        default: return [AppPalette.inkAccent.opacity(0.82), AppPalette.plumAccent.opacity(0.82)]
         }
     }
     
@@ -655,7 +790,7 @@ struct RecommendedNovelRow: View {
                     BookCoverView(
                         title: novel.title,
                         author: novel.author,
-                        coverUrl: nil,
+                        coverUrl: novel.coverUrl,
                         width: 64,
                         height: 88,
                         cornerRadius: 8
@@ -663,9 +798,9 @@ struct RecommendedNovelRow: View {
                     
                     // Rank Badge
                     Text("TOP \(rank)")
-                        .font(.system(size: 9, weight: .heavy))
-                        .foregroundColor(rank <= 3 ? .white : .primary.opacity(0.75))
-                        .padding(.horizontal, 5)
+                        .font(.system(size: 8.5, weight: .heavy, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5.5)
                         .padding(.vertical, 2)
                         .background(
                             LinearGradient(
@@ -679,19 +814,30 @@ struct RecommendedNovelRow: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .center, spacing: 6) {
+                    HStack(alignment: .center, spacing: 5) {
                         Text(novel.title)
-                            .font(.system(size: 16, weight: .bold, design: .serif))
+                            .font(.system(size: 15.5, weight: .bold, design: .serif))
                             .foregroundColor(.primary)
                             .lineLimit(1)
                         
                         Text(novel.rating)
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.orange)
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(AppPalette.gildedAmber)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.12))
+                            .background(AppPalette.gildedAmber.opacity(0.13))
                             .clipShape(Capsule())
+                            .lineLimit(1)
+                        
+                        if novel.isLive {
+                            Text("实时")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(AppPalette.celadon)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(AppPalette.celadon.opacity(0.13))
+                                .clipShape(Capsule())
+                        }
                         
                         Spacer()
                         
@@ -703,28 +849,29 @@ struct RecommendedNovelRow: View {
                         }
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
-                        .background(Color.indigo.opacity(0.12))
-                        .foregroundColor(.indigo)
+                        .background(AppPalette.inkAccent.opacity(0.12))
+                        .foregroundColor(AppPalette.inkAccent)
                         .clipShape(Capsule())
                     }
                     
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Text(novel.author)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
                         
                         Text("·")
                             .foregroundColor(.secondary)
                         
                         Text(novel.tagline)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.indigo.opacity(0.85))
+                            .foregroundColor(AppPalette.inkAccent.opacity(0.85))
                             .lineLimit(1)
                     }
                     
                     Text(novel.intro)
                         .font(.system(size: 12))
-                        .foregroundColor(.secondary.opacity(0.85))
+                        .foregroundColor(.secondary.opacity(0.88))
                         .lineLimit(2)
                         .lineSpacing(2)
                         .multilineTextAlignment(.leading)
@@ -733,8 +880,12 @@ struct RecommendedNovelRow: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-                    .shadow(color: Color.black.opacity(0.03), radius: 4, x: 0, y: 2)
+                    .fill(AppPalette.cardBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(AppPalette.cardBorder, lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
             )
         }
         .buttonStyle(.plain)
@@ -743,28 +894,41 @@ struct RecommendedNovelRow: View {
 
 struct FlowLayoutChips: View {
     let items: [String]
+    var highlightTopThree: Bool = false
     let onTap: (String) -> Void
     
     private let columns = [
-        GridItem(.adaptive(minimum: 95), spacing: 10)
+        GridItem(.adaptive(minimum: 98), spacing: 9)
     ]
     
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-            ForEach(items, id: \.self) { item in
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 9) {
+            ForEach(Array(items.enumerated()), id: \.element) { idx, item in
+                let isHot = highlightTopThree && idx < 3
                 Button {
                     onTap(item)
                 } label: {
-                    Text(item)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .foregroundColor(.primary)
-                        .clipShape(Capsule())
-                        .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
+                    HStack(spacing: 4) {
+                        if isHot {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(idx == 0 ? AppPalette.vermilion : AppPalette.gildedAmber)
+                        }
+                        Text(item)
+                            .font(.system(size: 12.5, weight: isHot ? .semibold : .medium))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .background(AppPalette.cardBackground)
+                    .foregroundColor(.primary)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(isHot ? AppPalette.gildedAmber.opacity(0.32) : AppPalette.cardBorder, lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
                 }
             }
         }
@@ -847,12 +1011,12 @@ struct SearchResultCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(AppPalette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(isExactMatch ? Color.indigo.opacity(0.28) : Color.clear, lineWidth: 1)
+                        .stroke(isExactMatch ? AppPalette.inkAccent.opacity(0.35) : AppPalette.cardBorder, lineWidth: isExactMatch ? 1.1 : 0.8)
                 )
-                .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
+                .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
         )
     }
 }

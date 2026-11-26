@@ -169,11 +169,12 @@ public struct SourceManagerView: View {
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(.secondarySystemGroupedBackground))
+                        .fill(AppPalette.cardBackground)
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.indigo.opacity(0.14), lineWidth: 0.8)
+                                .stroke(AppPalette.cardBorder, lineWidth: 0.9)
                         )
+                        .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 3)
                 )
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -300,7 +301,7 @@ public struct SourceManagerView: View {
                 }
                 .listStyle(.insetGrouped)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(AppAmbientBackdrop())
             .navigationTitle("书源中心")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

@@ -31,8 +31,8 @@ targets:
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
         ENABLE_BITCODE: NO
-        MARKETING_VERSION: "4.1.0"
-        CURRENT_PROJECT_VERSION: "46"
+        MARKETING_VERSION: "4.2.0"
+        CURRENT_PROJECT_VERSION: "47"
   LegadoReaderTests:
     type: bundle.unit-test
     platform: iOS

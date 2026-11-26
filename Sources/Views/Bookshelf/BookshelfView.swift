@@ -1,15 +1,30 @@
 import SwiftUI
 
+public enum BookshelfSortOrder: String, CaseIterable {
+    case recent = "最近"
+    case title = "书名"
+}
+
 public struct BookshelfView: View {
     @ObservedObject var storage = StorageManager.shared
     @ObservedObject var speech = SpeechSynthesizerManager.shared
     @State private var selectedBook: Book?
     @State private var showingSearch = false
     @State private var isGridView = true
+    @State private var sortOrder: BookshelfSortOrder = .recent
     
     // Let the current window choose the column count, including the outer screen and multitasking.
     private var adaptiveColumns: [GridItem] {
         [GridItem(.adaptive(minimum: 112), spacing: 16)]
+    }
+    
+    private var sortedShelfBooks: [Book] {
+        switch sortOrder {
+        case .recent:
+            return storage.bookshelf
+        case .title:
+            return storage.bookshelf.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        }
     }
 
     public init() {}
@@ -70,6 +85,28 @@ public struct BookshelfView: View {
                             Spacer()
                             
                             Button {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                    sortOrder = (sortOrder == .recent) ? .title : .recent
+                                }
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text(sortOrder.rawValue)
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 6)
+                                .background(AppPalette.cardBackground)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(AppPalette.cardBorder, lineWidth: 0.8)
+                                )
+                            }
+                            
+                            Button {
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                     isGridView.toggle()
                                 }
@@ -83,11 +120,11 @@ public struct BookshelfView: View {
                                 .foregroundColor(.secondary)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(Color(.secondarySystemGroupedBackground))
+                                .background(AppPalette.cardBackground)
                                 .clipShape(Capsule())
                                 .overlay(
                                     Capsule()
-                                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.8)
+                                        .stroke(AppPalette.cardBorder, lineWidth: 0.8)
                                 )
                             }
                         }
@@ -96,7 +133,7 @@ public struct BookshelfView: View {
                         // Bookshelf Grid or List
                         if isGridView {
                             LazyVGrid(columns: adaptiveColumns, spacing: 22) {
-                                ForEach(storage.bookshelf) { book in
+                                ForEach(sortedShelfBooks) { book in
                                     BookshelfGridItem(book: book)
                                         .onTapGesture {
                                             openBook(book)
@@ -110,7 +147,7 @@ public struct BookshelfView: View {
                             .padding(.bottom, 32)
                         } else {
                             LazyVStack(spacing: 12) {
-                                ForEach(storage.bookshelf) { book in
+                                ForEach(sortedShelfBooks) { book in
                                     BookshelfListItem(book: book)
                                         .onTapGesture {
                                             openBook(book)
@@ -126,7 +163,7 @@ public struct BookshelfView: View {
                     }
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(AppAmbientBackdrop())
             .safeAreaInset(edge: .bottom) {
                 if speech.isSpeaking {
                     miniTTSPlayerBar
@@ -396,15 +433,15 @@ public struct BookshelfView: View {
             .padding(15)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(AppPalette.cardBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(
                                 LinearGradient(
                                     colors: [
-                                        Color.indigo.opacity(0.22),
-                                        Color.orange.opacity(0.15),
-                                        Color.primary.opacity(0.05)
+                                        AppPalette.inkAccent.opacity(0.24),
+                                        AppPalette.gildedAmber.opacity(0.22),
+                                        AppPalette.cardBorder
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -412,7 +449,7 @@ public struct BookshelfView: View {
                                 lineWidth: 1
                             )
                     )
-                    .shadow(color: Color.black.opacity(0.07), radius: 12, x: 0, y: 5)
+                    .shadow(color: Color.black.opacity(0.07), radius: 14, x: 0, y: 6)
             )
         }
         .buttonStyle(.plain)
@@ -500,6 +537,11 @@ public struct BookshelfView: View {
 struct BookshelfGridItem: View {
     let book: Book
     
+    private var progressFraction: Double {
+        guard book.totalChapters > 0 else { return 0 }
+        return min(1.0, max(0.04, Double(book.currentChapterIndex + 1) / Double(book.totalChapters)))
+    }
+    
     private var badgeLabel: String? {
         if book.totalChapters > 0 {
             let pct = min(100, max(1, Int((Double(book.currentChapterIndex + 1) / Double(book.totalChapters)) * 100)))
@@ -509,7 +551,7 @@ struct BookshelfGridItem: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 6) {
             BookCoverView(
                 title: book.title,
                 author: book.author,
@@ -517,6 +559,21 @@ struct BookshelfGridItem: View {
                 cornerRadius: 9,
                 badgeText: badgeLabel
             )
+            
+            if book.totalChapters > 0 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.primary.opacity(0.07))
+                            .frame(height: 2.5)
+                        Capsule()
+                            .fill(AppPalette.primaryGradient)
+                            .frame(width: max(8, geo.size.width * progressFraction), height: 2.5)
+                    }
+                }
+                .frame(height: 2.5)
+                .padding(.top, 1)
+            }
             
             Text(book.title)
                 .font(.system(size: 13.5, weight: .bold, design: .serif))
@@ -612,12 +669,12 @@ struct BookshelfListItem: View {
         .padding(13)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(AppPalette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.primary.opacity(0.05), lineWidth: 0.8)
+                        .stroke(AppPalette.cardBorder, lineWidth: 0.8)
                 )
-                .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
+                .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
         )
     }
 }
